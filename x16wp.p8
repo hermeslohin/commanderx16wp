@@ -4,6 +4,7 @@
 %import syslib
 %import view
 %import rtf
+%import cloudx
 %zeropage basicsafe
 
 main {
@@ -333,9 +334,28 @@ main {
     sub do_button(ubyte id) {
         when id {
             view.B_NEW -> new_doc()
-            view.B_OPEN -> open_doc()
-            view.B_SAVE -> save_doc(false)
-            view.B_SAVEAS -> save_doc(true)
+            view.B_OPEN -> {
+                ubyte m = cloudx.menu(0)
+                view.redraw_everything()
+                if m == 0
+                    open_doc()
+                else if m == 1
+                    open_cloud()
+            }
+            view.B_SAVE -> {
+                if cloudx.is_cloud()
+                    cloudx.save()
+                else
+                    save_doc(false)
+            }
+            view.B_SAVEAS -> {
+                ubyte m2 = cloudx.menu(1)
+                view.redraw_everything()
+                if m2 == 0
+                    save_doc(true)
+                else if m2 == 1
+                    cloudx.cl_save(1)
+            }
             view.B_CUT -> {
                 doc.cut_selection()
                 cursor_event()
@@ -402,6 +422,7 @@ main {
             }
         }
         doc.init_doc()
+        cloudx.forget()
         view.vtop = 0
         view.set_filename(iso:"untitled.rtf")
         view.set_status(iso:"New document")
@@ -422,6 +443,7 @@ main {
         }
         view.ensure_ext()
         if rtf.import(view.nbuf) {
+            cloudx.forget()
             view.set_filename(view.nbuf)
             doc.modified = false
             view.vtop = 0
@@ -430,6 +452,16 @@ main {
             view.set_status(iso:"Could not open that file")
         }
         view.redraw_everything()
+    }
+
+    sub open_cloud() {
+        if doc.modified {
+            if not view.dialog_yesno(iso:"Discard the current document?") {
+                view.redraw_everything()
+                return
+            }
+        }
+        cloudx.cl_open()
     }
 
     sub save_doc(bool ask) {
@@ -445,6 +477,7 @@ main {
         } else
             view.copy_name_to_buf()
         if rtf.export(view.nbuf) {
+            cloudx.forget()
             view.set_filename(view.nbuf)
             doc.modified = false
             view.set_status(iso:"Saved as RTF")

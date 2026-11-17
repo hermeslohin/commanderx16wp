@@ -156,9 +156,9 @@ view {
     sub tip(ubyte id) -> str {
         when id {
             B_NEW -> return iso:"New document"
-            B_OPEN -> return iso:"Open RTF file"
-            B_SAVE -> return iso:"Save as RTF"
-            B_SAVEAS -> return iso:"Save RTF with a new name"
+            B_OPEN -> return iso:"Open from SD card or ownCloud"
+            B_SAVE -> return iso:"Save (back to ownCloud if opened there)"
+            B_SAVEAS -> return iso:"Save As on SD card or ownCloud"
             B_CUT -> return iso:"Cut"
             B_COPY -> return iso:"Copy"
             B_PASTE -> return iso:"Paste"
