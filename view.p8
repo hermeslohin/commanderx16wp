@@ -699,23 +699,26 @@ view {
         put(24, 17, iso:"[ OK ]", 0, vid.C_WHITE)
         put(40, 17, iso:"[ Cancel ]", 0, vid.C_WHITE)
         put(18, 15, iso:"Enter = OK    Esc = Cancel", vid.C_DGRAY, vid.C_LGRAY)
+        bool dirty = true
         repeat {
-            ; input field
-            vid.fill(29, 13, 32, 0, vid.C_WHITE)
-            ubyte i
-            for i in 0 to 31 {
-                vid.r_ch[i] = 32
-                vid.r_sty[i] = 0
-                vid.r_col[i] = (vid.C_WHITE << 4)
-            }
-            for i in 0 to n {
-                if i < 31 and i < n {
+            ; input field: redraw only when the text changed (redrawing every frame flickers)
+            if dirty {
+                dirty = false
+                ubyte i
+                for i in 0 to 31 {
+                    vid.r_ch[i] = 32
+                    vid.r_sty[i] = 0
+                    vid.r_col[i] = (vid.C_WHITE << 4)
+                }
+                for i in 0 to 30 {
+                    if i >= n
+                        break
                     vid.r_ch[i] = @(buf + i)
                 }
+                if n < 31
+                    vid.r_col[n] = (0 << 4) | vid.C_WHITE
+                vid.render_run(13, 29, 32)
             }
-            if n < 31
-                vid.r_col[n] = (0 << 4) | vid.C_WHITE
-            vid.render_run(13, 29, 32)
             sys.waitvsync()
             k = cbm.GETIN2()
             if k == 13
@@ -725,10 +728,12 @@ view {
             if (k == 8 or k == 20) and n > 0 {
                 n--
                 @(buf + n) = 0
-            } else if k >= 33 and k < 127 and n < maxlen {
+                dirty = true
+            } else if k >= 32 and k < 127 and n < maxlen {
                 @(buf + n) = k
                 n++
                 @(buf + n) = 0
+                dirty = true
             }
             poll_mouse()
             if mouse_btn & 1 != 0 {
