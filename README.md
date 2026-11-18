@@ -1,10 +1,11 @@
 # X16 Write - a mouse-driven word processor for the Commander X16 (Prog8)
 
 Build: `make PROG8C="<prog8c 12.3.x command>"` (needs Prog8 12.3.x + 64tass + Java 11+). Everything
-lands in `build/`: **x16wp.prg**, **x16wpcl.bin** (ownCloud UI, RAM bank 62), **x16link.bin** and
+lands in `build/`: **x16wp.prg**, **x16wpcl.bin** (ownCloud UI, RAM bank 62), **x16wpsa.bin** (Save As
+folder browser, RAM bank 59, loaded by x16wpcl.bin), **x16link.bin** and
 **x16docs.bin** (X16Link libraries, banks 60/61, sources vendored in `lib/x16link/`, see
 `lib/x16link/VENDORED.md`). `make sd SD=<dir>` also copies them as X16WP.PRG, X16WPCL.BIN,
-X16LINK.BIN, X16DOCS.BIN. Run: `make run` (needs a mouse, 512 KB RAM). Without the .BIN files on the
+X16WPSA.BIN, X16LINK.BIN, X16DOCS.BIN. Run: `make run` (needs a mouse, 512 KB RAM). Without the .BIN files on the
 SD card the program still works as a plain SD-card word processor. (`x16wp.prg`/`.asm` in the repo
 root are the original pre-cloud build, kept for reference.)
 
@@ -36,6 +37,23 @@ ones from imported files are split into several paragraphs).
 
 The RTF can be re-opened by this program (private `\*\xwp` paragraph tags keep soft wrapping).
 
+## Save As: folders
+
+**Save As** (SD card and ownCloud) shows a folder browser: the current folder's path, `..`, its
+folders (blue, `/`) and files, and a name field. Double-click a folder (or select it with the arrow
+keys and press Enter) to open it, `..` or **[ Up ]** to go up, **[New folder]** or **F7** to make a
+folder, click a file to take its name; type a name and press Enter or **[ Save ]**. Esc / [Cancel]
+leaves everything as it was.
+
+* **SD card**: opening a folder changes the DOS current directory, so the document then lives there:
+  plain Save and Open (by name) work in that folder. An existing file is only replaced after
+  "Replace the existing file?". The SD listing is in directory order (folders first).
+* **ownCloud**: the browser shows one folder of `Documents/` at a time; the document's full name
+  (`Letters/2026/mom.rtf`, at most 63 bytes) is what Save writes back to later.
+* `X16LINK.KEY` is always read from X16 Write's own folder, whatever the current directory is.
+* The browser lives in `X16WPSA.BIN` (it needs the other ownCloud files too; without them Save As is
+  the plain name prompt, as before).
+
 ## ownCloud: Open and Save As
 
 Open and Save As each ask first: **1** = SD card (as before), **2** = ownCloud.
@@ -51,7 +69,7 @@ Open and Save As each ask first: **1** = SD card (as before), **2** = ownCloud.
   before it replaces the document. A dropped link resumes where it stopped.
 * **Save** of a document opened from ownCloud writes it back there, but only if nobody
   changed it in ownCloud meanwhile (the hub checks the etag).
-* **Save As to ownCloud** asks for a name in `Documents/` (`.rtf` keeps the full format,
+* **Save As to ownCloud** asks for a folder and name in `Documents/` (`.rtf` keeps the full format,
   `.txt` stores plain text as UTF-8, **`.docx` stores a Word document**: the hub converts the RTF,
   joining the screen lines back into paragraphs and turning the list markers into real Word lists).
   Save of a document opened from a `.docx` writes a `.docx` again. If the file already exists, or was changed since you
@@ -75,6 +93,12 @@ Test (needs the X16 Office workspace with the hub and toolchain; `X16OFFICE=<dir
 (`-uart1 ximodem`) against the hub and the real ownCloud. It seeds `Documents/LKTEST.*`,
 opens RTF + TXT, saves, runs Save As with both conflict choices, byte-compares the results
 in ownCloud, removes the test files and leaves screenshots in `$X16OFFICE/build/wp-cloudtest/shots.gif`.
+
+Save As test (macOS, no ownCloud needed): `selftest/run_saveastest.sh` runs `selftest/saveas.p8` with
+the real bank libraries on a FAT32 SD card image against the hub link server with an in-memory
+ownCloud (`selftest/fakehub.py`, needs `../x16-office-hub` and its venv): new folders on both sides,
+saving into them, Replace, Cancel going back, saving back to the same ownCloud file. `SHOT=1` records
+`build/saveastest/shots.gif`.
 
 ## Notes / limits
 * 16 pages max (864 lines), clipboard 2700 characters, file names are typed in a dialog.

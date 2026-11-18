@@ -351,9 +351,12 @@ main {
             view.B_SAVEAS -> {
                 ubyte m2 = cloudx.menu(1)
                 view.redraw_everything()
-                if m2 == 0
-                    save_doc(true)
-                else if m2 == 1
+                if m2 == 0 {
+                    if cloudx.ready
+                        cloudx.cl_save(2)       ; SD card Save As with the folder browser
+                    else
+                        save_doc(true)
+                } else if m2 == 1
                     cloudx.cl_save(1)
             }
             view.B_CUT -> {

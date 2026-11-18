@@ -4,6 +4,10 @@
 ; Save As to a .docx name: the hub converts the RTF to a Word document (and back on Open).
 ; Save / Save As: export RTF to a temp file and upload it (create-only, or overwrite exactly the
 ; version we opened); a conflict asks Overwrite / New name / Cancel.
+; Save As (SD card and ownCloud) shows a folder browser, the bank library X16WPSA.BIN (RAM bank 59,
+; x16wpsa.p8), which this library loads at setup. On the SD card Save As changes the DOS current
+; directory (CD), which then is where the document lives; the key file is read with an absolute
+; path to X16 Write's own folder.
 ; It calls X16 Write's main-RAM routines through wpsyms.p8 (generated from the WP build by
 ; tools/gen_wpsyms.py) and the X16Link libraries in banks 60/61. Build: make -C apps/wp.
 
@@ -13,13 +17,14 @@
 
 %import syslib
 %import x16link_ext
+%import lk_util
 %import wpsyms
 
 main {
     %jmptable (
         cloud.setup,        ; $A003  r0 = &vid.text as the WP sees it, r1 = temp file name -> A true if this library matches
         cloud.open_doc,     ; $A006
-        cloud.save_entry,   ; $A009  r0L = 1 Save As (ask a name), 0 Save
+        cloud.save_entry,   ; $A009  r0L = 0 Save, 1 Save As to ownCloud, 2 Save As on the SD card
         cloud.menu_entry,   ; $A00C  r0L = 0 Open menu, 1 Save As menu -> A 0 SD, 1 ownCloud, 255 cancel
         cloud.is_cloud,     ; $A00F  -> A
         cloud.forget,       ; $A012
@@ -47,14 +52,34 @@ cloud {
     const uword setag = $0690       ; 48  etag in/out (set_etag, get_etag, conflict)
     const uword emsg = $06c0        ; 52  error text
 
+    ; Save As browser library (X16WPSA.BIN, bank 59)
+    const ubyte SABANK = 59
+    extsub @bank SABANK $A000 = sa_init() clobbers(A, X, Y)
+    extsub @bank SABANK $A003 = sa_setup(uword check @R0) clobbers(X, Y) -> bool @A
+    extsub @bank SABANK $A006 = sa_browse(ubyte cl @R0) clobbers(X, Y) -> bool @A
+    extsub @bank SABANK $A009 = sa_key_path() clobbers(A, X, Y)
+    extsub @bank SABANK $A00C = sa_exists(uword name @R0) clobbers(X, Y) -> bool @A
+    extsub @bank SABANK $A00F = sa_cd_back() clobbers(A, X, Y)
+
     uword TMPN                  ; temp file name (lives in the WP's main RAM)
     sub setup() -> bool {
         TMPN = cx16.r1
-        return cx16.r0 == wp.CHECK
+        if cx16.r0 != wp.CHECK
+            return false
+        ; load X16WPSA.BIN into bank 59: X16 Write's own load_raw, called with bank 59 mapped
+        ; (the file name must be outside banked RAM)
+        lkx_copy(iso:"X16WPSA.BIN", pickname)
+        if wp.load_raw59(pickname, $a000) == 0
+            return false
+        sa_init()
+        return sa_setup(wp.CHECK)
     }
 
     sub save_entry() {
-        save_doc(cx16.r0L != 0)
+        if cx16.r0L == 2
+            sd_save_as()
+        else
+            save_doc(cx16.r0L != 0)
     }
 
     sub menu_entry() -> ubyte {
@@ -121,9 +146,10 @@ cloud {
         wp.set_status(emsg)
     }
 
+    ; "//<home>/:X16LINK.KEY": the key next to X16WP.PRG, wherever the current directory is
     sub online() -> bool {
         busy(iso:"Connecting to the hub...")
-        lkx_copy(iso:"X16LINK.KEY", pickname)
+        sa_key_path()               ; pickname = "//<X16 Write's folder>/:X16LINK.KEY"
         ubyte st = lkapi.load_key(pickname)
         if st == 0
             st = lkapi.connect()
@@ -343,7 +369,7 @@ cloud {
         wp.draw_box(14, 11, 52, 7)
         wp.vid_fill(14, 11, 52, C_WHITE, C_RED)
         wp.put(16, 11, iso:"Save conflict", C_WHITE, C_RED)
-        wp.put(16, 13, wp.nbuf, 0, C_LGRAY)
+        wp.put(16, 13, pickname, 0, C_LGRAY)
         if exists
             wp.put(16, 14, iso:"already exists on ownCloud.", 0, C_LGRAY)
         else
@@ -376,18 +402,16 @@ cloud {
         }
     }
 
+    ; browse ownCloud for the folder + name (starting at the folder of the name in pickname);
+    ; the full name (Documents-relative) ends up in pickname
     sub ask_name() -> bool {
-        bool ok = wp.dialog_input(iso:"Save As to ownCloud: .rtf .txt or .docx", wp.nbuf, 30)
-        wp.redraw_everything()
-        if ok
-            wp.ensure_ext()
-        return ok and @(wp.nbuf + 0) != 0
+        return sa_browse(1)
     }
 
     sub same_as_current() -> bool {
         ubyte i = 0
         repeat {
-            if @(wp.nbuf + i) != cname[i]
+            if @(pickname + i) != cname[i]
                 return false
             if cname[i] == 0
                 return true
@@ -395,71 +419,124 @@ cloud {
         }
     }
 
-    ; ask = Save As (prompt for a name); otherwise Save back to the document's own cloud file
+    ; ask = Save As (browse for a folder and name); otherwise Save back to the document's own cloud file
     sub save_doc(bool ask) {
         ubyte mode = 0
-        if ask or not is_cloud() {
-            if is_cloud()
-                lkx_copy(&cname, wp.nbuf)
-            else
-                wp.copy_name_to_buf()
-            if not ask_name()
-                return
-        } else
-            lkx_copy(&cname, wp.nbuf)
-        busy(iso:"Saving...")
-        if not wp.rtf_export(TMPN) {
-            wp.set_status(iso:"SAVE FAILED (temp file)")
+        if not online() {
             wp.redraw_everything()
             return
         }
-        if online() {
-            if is_cloud() and same_as_current() {
-                mode = 1                    ; overwrite exactly the version we have
-                lkx_copy(&cetag, setag)
-                lkapi.set_etag(setag)
+        if ask or not is_cloud() {
+            ; start in the document's own folder with its name
+            @(pickname) = 0
+            if is_cloud() {
+                lkx_copy(&cname, pickname)
+                lkut.scopy(leaf(&cname), wp.nbuf, 31)
             } else
-                @(setag) = 0
-                lkapi.set_etag(setag)
-            repeat {
-                busy(iso:"Uploading...")
-                ubyte st = lkapi.upload(TMPN, wp.nbuf, mode, 1)
-                if st == 0 {
-                    lkapi.get_etag(setag, 48)
-                    lkx_copy(setag, &cetag)
-                    lkx_copy(wp.nbuf, &cname)
-                    wp.set_filename(&cname)
-                    wp.modified = false
-                    wp.set_status(iso:"Saved to ownCloud")
-                    break
-                }
-                if st != lkapi.S_CONFLICT {
-                    fail(iso:"Save failed")
-                    break
-                }
-                ubyte kind = lkapi.conflict(setag, 48)
-                ubyte choice = conflict_dialog(kind == 1)
-                wp.redraw_everything()
-                if choice == 0 {
-                    mode = 1
-                    lkapi.set_etag(setag)  ; overwrite the version the hub just told us about
-                } else if choice == 1 {
-                    if not ask_name() {
-                        wp.set_status(iso:"Save cancelled")
-                        break
-                    }
-                    mode = 0
-                    @(setag) = 0
-                lkapi.set_etag(setag)
-                } else {
+                wp.copy_name_to_buf()
+            if not ask_name() {
+                done(iso:"Save cancelled")
+                return
+            }
+        } else
+            lkx_copy(&cname, pickname)
+        busy(iso:"Saving...")
+        if not wp.rtf_export(TMPN) {
+            done(iso:"SAVE FAILED (temp file)")
+            return
+        }
+        if is_cloud() and same_as_current() {
+            mode = 1                    ; overwrite exactly the version we have
+            lkx_copy(&cetag, setag)
+        } else
+            @(setag) = 0
+        lkapi.set_etag(setag)
+        repeat {
+            busy(iso:"Uploading...")
+            ubyte st = lkapi.upload(TMPN, pickname, mode, 1)
+            if st == 0 {
+                lkapi.get_etag(setag, 48)
+                lkx_copy(setag, &cetag)
+                lkx_copy(pickname, &cname)
+                wp.set_filename(leaf(&cname))
+                wp.modified = false
+                wp.set_status(iso:"Saved to ownCloud")
+                break
+            }
+            if st != lkapi.S_CONFLICT {
+                fail(iso:"Save failed")
+                break
+            }
+            ubyte kind = lkapi.conflict(setag, 48)
+            ubyte choice = conflict_dialog(kind == 1)
+            wp.redraw_everything()
+            if choice == 0 {
+                mode = 1
+                lkapi.set_etag(setag)  ; overwrite the version the hub just told us about
+            } else if choice == 1 {
+                if not ask_name() {
                     wp.set_status(iso:"Save cancelled")
                     break
                 }
+                mode = 0
+                @(setag) = 0
+                lkapi.set_etag(setag)
+            } else {
+                wp.set_status(iso:"Save cancelled")
+                break
             }
-            lkapi.hangup()
-            lkapi.forget()                  ; key out of RAM until the next transfer
         }
+        lkapi.hangup()
+        lkapi.forget()                  ; key out of RAM until the next transfer
         wp.disk_delete(TMPN)
         wp.redraw_everything()
     }
+
+    ; last segment of a path
+    sub leaf(uword p) -> uword {
+        uword l = p
+        while @(p) != 0 {
+            if @(p) == iso:'/'
+                l = p + 1
+            p++
+        }
+        return l
+    }
+
+    sub done(str msg) {
+        lkapi.hangup()
+        lkapi.forget()
+        wp.set_status(msg)
+        wp.redraw_everything()
+    }
+
+    ; ---------------- Save As on the SD card ----------------
+    sub sd_save_as() {
+        wp.copy_name_to_buf()
+        if not sa_browse(0) {
+            sa_cd_back()                ; cancelled: back to where we were
+            wp.set_status(iso:"Save cancelled")
+            wp.redraw_everything()
+            return
+        }
+        if sa_exists(wp.nbuf) {
+            bool yes = wp.dialog_yesno(iso:"Replace the existing file?")
+            wp.redraw_everything()
+            if not yes {
+                wp.set_status(iso:"Save cancelled")
+                wp.draw_status()
+                return
+            }
+        }
+        busy(iso:"Saving...")
+        if wp.rtf_export(wp.nbuf) {
+            forget()
+            wp.set_filename(wp.nbuf)
+            wp.modified = false
+            wp.set_status(iso:"Saved as RTF")
+        } else
+            wp.set_status(iso:"SAVE FAILED")
+        wp.redraw_everything()
+    }
+
 }
