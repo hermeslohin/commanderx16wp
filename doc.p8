@@ -27,8 +27,13 @@ doc {
     const ubyte TB_HEAD = 16        ; (tblx.p8 / x16wptb.p8; 0 = normal line)
     const ubyte F_SOFT = 1
     const ubyte F_HARD = 2
-    const ubyte F_TALL = 4          ; the line holds large (2x2 cell) characters: it is 2 screen rows high
-    const ubyte SZ_LARGE = $40      ; style bit: character is large (24 pt, 2 cells wide)
+    const ubyte F_TALL = 4          ; the line holds 18/24 pt (2x2 cell) characters: it is 2 screen rows high
+    const ubyte F_TALL3 = 8         ; the line holds 36 pt (3x3 cell) characters: it is 3 screen rows high
+    ; character size: style bits 6-7. 0 = 12 pt (1 cell), SZ_LARGE = 24 pt (2x2 cells),
+    ; $80 = 18 pt (2x2 cells, drawn 1.5x), $C0 = 36 pt (3x3 cells)
+    const ubyte SZ_LARGE = $40
+    const ubyte SZ_MASK = $c0
+    ubyte[4] SZ_CODE = [0, $80, $40, $c0]       ; 12, 18, 24, 36 pt (the font menu's order)
 
     ; line order: slot number of every line (MAXLINES words). It lives in banked RAM (bank ORDERBANK at
     ; $A000) to leave main RAM for the program; oslot() maps that bank, slot_ptr() then maps the line's.
@@ -71,7 +76,7 @@ doc {
     ubyte cg_col
 
     ; row map of one page (a large-size line takes 2 rows): which line / sub-row is on each page row
-    ubyte[54] pc_row                ; (line - first line of the page) * 2 + sub-row, 255 = empty
+    ubyte[54] pc_row                ; (line - first line of the page) * 4 + sub-row, 255 = empty
     ubyte pc_page = 255
 
     ; ---------------- slots ----------------
@@ -198,15 +203,39 @@ doc {
 
     ; screen cells taken by the first n characters of a line buffer (large characters take 2)
     sub cells_of(uword b, ubyte n) -> ubyte {
-        ubyte w = n
+        ubyte w = 0
         ubyte i
         if n == 0
             return 0
-        for i in 0 to n - 1 {
-            if (@(b + O_STY + i) & SZ_LARGE) != 0
-                w++
-        }
+        for i in 0 to n - 1
+            w += sz_w(@(b + O_STY + i))
         return w
+    }
+
+    ; cells (wide and high) of a character with style s
+    sub sz_w(ubyte s) -> ubyte {
+        if s & SZ_MASK == 0
+            return 1
+        if s & SZ_MASK == SZ_MASK
+            return 3
+        return 2
+    }
+
+    ; screen rows of a line with flags f, and the flags for h rows
+    sub line_h(ubyte f) -> ubyte {
+        if f & F_TALL3 != 0
+            return 3
+        if f & F_TALL != 0
+            return 2
+        return 1
+    }
+
+    sub tall_flag(ubyte h) -> ubyte {
+        if h == 3
+            return F_TALL3
+        if h == 2
+            return F_TALL
+        return 0
     }
 
     sub mark_range(uword l1, uword l2) {
@@ -250,9 +279,7 @@ doc {
         pfirst[0] = 0
         for l in 0 to nlines - 1 {
             f = meta(l, O_FLG)
-            h = 1
-            if (f & F_TALL) != 0
-                h = 2
+            h = line_h(f)
             if l > 0 {
                 if (f & F_HARD) != 0 or rows + h > PLINES {
                     if p < 63 {
@@ -285,12 +312,15 @@ doc {
         ubyte r = 0
         ubyte n = 0
         uword l = pfirst[p]
+        ubyte h
+        ubyte k
         while l < endl and r < PLINES {
-            pc_row[r] = n << 1
-            r++
-            if r < PLINES and (meta(l, O_FLG) & F_TALL) != 0 {
-                pc_row[r] = (n << 1) | 1
+            h = line_h(meta(l, O_FLG))
+            k = 0
+            while k < h and r < PLINES {
+                pc_row[r] = (n << 2) | k
                 r++
+                k++
             }
             n++
             l++
@@ -306,14 +336,14 @@ doc {
     sub vrow_of(uword l) -> uword {
         ubyte p = page_of(l)
         build_pagemap(p)
-        ubyte n = lsb(l - pfirst[p]) << 1
+        ubyte n = lsb(l - pfirst[p]) << 2
         ubyte r = 0
         while r < PLINES - 1 and pc_row[r] != n
             r++
         return (p as uword) * 55 + 1 + r
     }
 
-    ; returns 0=line (cx16.r0=line, cx16.r1L=sub-row 0/1), 1=blank paper, 2=page top separator (r0=page), 3=beyond
+    ; returns 0=line (cx16.r0=line, cx16.r1L=sub-row 0..2), 1=blank paper, 2=page top separator (r0=page), 3=beyond
     sub vrow_info(uword vr) -> ubyte {
         uword p = vr / 55
         ubyte rip = lsb(vr % 55)
@@ -328,8 +358,8 @@ doc {
         ubyte e = pc_row[rip - 1]
         if e == 255
             return 1
-        cx16.r0 = pfirst[pp] + (e >> 1)
-        cx16.r1L = e & 1
+        cx16.r0 = pfirst[pp] + (e >> 2)
+        cx16.r1L = e & 3
         return 0
     }
 
@@ -410,9 +440,7 @@ doc {
             fit = 0
             wsum = 0
             while fit < lim {
-                step = 1
-                if (@(sbsty + pos + fit) & SZ_LARGE) != 0
-                    step = 2
+                step = sz_w(@(sbsty + pos + fit))
                 if wsum + step > w
                     break
                 wsum += step
@@ -445,18 +473,18 @@ doc {
                 sys.memcopy(sbcol + pos, LB + O_COL, take)
             }
             LB[O_LEN] = take
-            tallb = 0
+            tallb = 1
             if take != 0 {
                 for i in 0 to take - 1 {
-                    if (@(sbsty + pos + i) & SZ_LARGE) != 0 {
-                        tallb = F_TALL
-                        break
-                    }
+                    step = sz_w(@(sbsty + pos + i))
+                    if step > tallb
+                        tallb = step
                 }
             }
+            tallb = tall_flag(tallb)
             oldtall = 0
             if cur <= avail
-                oldtall = meta(cur, O_FLG) & F_TALL
+                oldtall = meta(cur, O_FLG) & (F_TALL | F_TALL3)
             if oldtall != tallb
                 heightchg = true
             if cur == first
@@ -538,7 +566,7 @@ doc {
             c = ln - 1
         if @(p + O_STY + c) & 8 != 0
             return                  ; a table border glyph
-        tsty = @(p + O_STY + c) & $77
+        tsty = @(p + O_STY + c) & $f7
         tfg = @(p + O_COL + c) & 15
         tbg = @(p + O_COL + c) >> 4
     }
@@ -613,9 +641,7 @@ doc {
         ld(curline, LB)
         ubyte ln = LB[O_LEN]
         ubyte w = width_of(LB[O_IND], LB[O_LIST])
-        ubyte cwn = 1
-        if (tsty & SZ_LARGE) != 0
-            cwn = 2
+        ubyte cwn = sz_w(tsty)
         if curcol <= ln and cells_of(LB, ln) + cwn <= w {
             ubyte i = ln
             while i > curcol {
@@ -628,8 +654,8 @@ doc {
             LB[O_STY + curcol] = tsty
             LB[O_COL + curcol] = (tbg << 4) | tfg
             LB[O_LEN] = ln + 1
-            if cwn == 2 and (LB[O_FLG] & F_TALL) == 0 {
-                LB[O_FLG] |= F_TALL
+            if cwn > line_h(LB[O_FLG]) {
+                LB[O_FLG] = (LB[O_FLG] & ~(F_TALL | F_TALL3)) | tall_flag(cwn)
                 need_repag = true
                 mark_from(curline)
             }
@@ -798,7 +824,7 @@ doc {
     }
 
     ; ---------------- character attribute changes ----------------
-    ; kind: 0 toggle style bit(s), 1 font, 2 text colour, 3 highlight colour, 4 size (0 = 12 pt, 1 = 24 pt)
+    ; kind: 0 toggle style bit(s), 1 font, 2 text colour, 3 highlight colour, 4 size (val = SZ_CODE[..]: 0 12 pt, $80 18 pt, $40 24 pt, $c0 36 pt)
     sub apply_attr(ubyte kind, ubyte val) {
         if kind == 0
             tsty ^= val
@@ -809,7 +835,7 @@ doc {
         else if kind == 3
             tbg = val
         else
-            tsty = (tsty & ~SZ_LARGE) | (val << 6)
+            tsty = (tsty & ~SZ_MASK) | val
         if not sel_active
             return
         sel_norm()
@@ -869,7 +895,7 @@ doc {
                     1 -> LB[O_STY + i] = (LB[O_STY + i] & $cf) | (val << 4)
                     2 -> LB[O_COL + i] = (LB[O_COL + i] & $f0) | val
                     3 -> LB[O_COL + i] = (LB[O_COL + i] & $0f) | (val << 4)
-                    else -> LB[O_STY + i] = (LB[O_STY + i] & ~SZ_LARGE) | (val << 6)
+                    else -> LB[O_STY + i] = (LB[O_STY + i] & ~SZ_MASK) | val
                 }
                 i++
             }
@@ -1075,11 +1101,9 @@ doc {
         ubyte cum = 0
         ubyte wd
         while i < m {
-            wd = 1
-            if (LBV[O_STY + i] & SZ_LARGE) != 0
-                wd = 2
+            wd = sz_w(LBV[O_STY + i])
             if cx < cum + wd {
-                if wd == 2 and cx > cum
+                if wd > 1 and cx - cum >= (wd + 1) / 2
                     i++
                 return i
             }

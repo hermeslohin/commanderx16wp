@@ -20,6 +20,7 @@ rtf {
     bool oerr
 
     ubyte[16] ib
+    ubyte[4] fs_half = [24, 48, 36, 72]     ; \fs (half points) by style bits 6-7
     ubyte[128] ibuf2
 
     sub flush_out() {
@@ -118,11 +119,10 @@ rtf {
         bool soft = (flg & doc.F_SOFT) != 0
         while ln > 0 and b[doc.O_CH + ln - 1] == 32
             ln--
-        ; a line with large (24 pt) characters is two rows high: exact line spacing of 2 x 12 pt
-        if (flg & doc.F_TALL) != 0
-            put_s(iso:"\\pard\\plain\\sb0\\sa0\\sl-480\\slmult0\\ri140\\li")
-        else
-            put_s(iso:"\\pard\\plain\\sb0\\sa0\\sl-240\\slmult0\\ri140\\li")
+        ; a line with 18/24 pt characters is two rows high, with 36 pt three: exact spacing of n x 12 pt
+        put_s(iso:"\\pard\\plain\\sb0\\sa0\\sl-")
+        put_n((doc.line_h(flg) as uword) * 240)
+        put_s(iso:"\\slmult0\\ri140\\li")
         put_n((left as uword) * 144)
         if list != 0 and not soft
             put_s(iso:"\\fi-576")
@@ -180,7 +180,7 @@ rtf {
         if e > a {
             for i in a to e - 1 {
                 ch = b[doc.O_CH + i]
-                s = b[doc.O_STY + i] & $77
+                s = b[doc.O_STY + i] & $f7
                 k = b[doc.O_COL + i]
                 if ch < 32
                     ch = 32
@@ -203,11 +203,9 @@ rtf {
                         else
                             put_s(iso:"\\ulnone")
                     }
-                    if (s & $40) != (cs & $40) {
-                        if (s & $40) != 0
-                            put_s(iso:"\\fs48")
-                        else
-                            put_s(iso:"\\fs24")
+                    if (s & doc.SZ_MASK) != (cs & doc.SZ_MASK) {
+                        put_s(iso:"\\fs")
+                        put_n(fs_half[s >> 6])
                     }
                     if (s & $30) != (cs & $30) {
                         put_s(iso:"\\f")
@@ -605,11 +603,14 @@ rtf {
                 f = lsb(wval)
             cur_sty = (cur_sty & $cf) | (f << 4)
         } else if is_word(iso:"fs") {
-            ; 18 pt and up is imported as the large size, anything smaller as normal
-            if wval >= 36
+            ; the nearest of 12, 18, 24, 36 pt (\fs is in half points)
+            cur_sty &= ~doc.SZ_MASK
+            if wval >= 60
+                cur_sty |= $c0
+            else if wval >= 42
                 cur_sty |= $40
-            else
-                cur_sty &= $bf        } else if is_word(iso:"cf") {
+            else if wval >= 30
+                cur_sty |= $80        } else if is_word(iso:"cf") {
             if wval >= 1 and wval <= 16
                 cur_fg = lsb(wval) - 1
             else

@@ -3,7 +3,7 @@
 Build: `make PROG8C="<prog8c 12.3.x command>"` (needs Prog8 12.3.x + 64tass + Java 11+). Everything
 lands in `build/`: **x16wp.prg**, **x16wpcl.bin** (ownCloud UI, RAM bank 62), **x16wpsa.bin** (Save As
 folder browser, RAM bank 59, loaded by x16wpcl.bin), **x16wptb.bin** (tables, RAM bank 57; the line-order
-table is in bank 58, the RTF file buffer in bank 56), **x16link.bin** and
+table is in bank 58, the RTF file buffer in bank 56, the renderer's buffers in bank 55), **x16link.bin** and
 **x16docs.bin** (X16Link libraries, banks 60/61, sources vendored in `lib/x16link/`, see
 `lib/x16link/VENDORED.md`). `make sd SD=<dir>` also copies them as X16WP.PRG, X16WPCL.BIN,
 X16WPSA.BIN, X16WPTB.BIN, X16LINK.BIN, X16DOCS.BIN. Run: `make run` (needs a mouse, 512 KB RAM). Without the .BIN files on the
@@ -25,19 +25,28 @@ Keyboard: typing, Enter, Backspace, Delete, arrows, Home, End, PgUp, PgDn, Tab (
 ## Pages and printing
 A page is 64 columns x 54 lines. RTF export writes every screen line as its own exact-spacing
 paragraph (12 pt monospace, 10 cpi, 6 lpi, 1" margins) with an explicit page break at every
-page start, so the printed page matches the screen. Bold/italic/underline, 2 font sizes (12 pt and
-24 pt, see below), 3 monospace font
+page start, so the printed page matches the screen. Bold/italic/underline, 4 font sizes (12, 18, 24
+and 36 pt, see below), 3 monospace font
 families (Courier New / Lucida Console / Andale Mono), 16 text + highlight colours, alignment,
 indent (4 columns per level) and bullet/number lists are all written as real RTF.
 ## Font sizes
-The Font menu (click the font box in the toolbar) lists the fonts and two sizes: **12 pt** (normal)
-and **24 pt** (large). With text selected the size applies to the selection, otherwise to what you
-type next; the toolbar shows the current size next to the font name. A large character is 2x2 cells
-(2 columns wide, 2 rows high), so a line containing large text is two rows high (normal text on the
-same line sits on the lower row) and wraps at the right margin by cell width. In the RTF it is
-`\fs48` (normal is `\fs24`) and the paragraph gets exact line spacing of 24 pt; on import, sizes of
-18 pt and up become large, smaller ones normal. A paragraph can hold up to 640 characters (longer
+The Font menu (click the font box in the toolbar) lists the fonts and four sizes: **12 pt** (normal),
+**18 pt**, **24 pt** (large) and **36 pt** (headline). With text selected the size applies to the
+selection, otherwise to what you type next; the toolbar shows the current size next to the font name.
+Characters stay on the 8x8 cell grid: 12 pt is 1 cell, 24 pt 2x2 cells, 36 pt 3x3 cells, and 18 pt
+takes 2x2 cells with the glyph drawn 1.5 times as big (12x12 pixels, on the baseline). A line is as
+high as its biggest character (1, 2 or 3 rows; smaller text on the line stands on the bottom row) and
+wraps at the right margin by cell width (36 pt: 21 characters a line). In the RTF the sizes are
+`\fs24`, `\fs36`, `\fs48`, `\fs72` and the paragraph gets exact line spacing of 12, 24 or 36 pt;
+printed, 18 pt text is a little narrower than its 2 cells on screen (the line breaks stay the same).
+On import every size becomes the nearest of the four. A paragraph can hold up to 640 characters (longer
 ones from imported files are split into several paragraphs).
+
+Memory: the size code is style bits 6-7 of a character (`$40` 24 pt as before, `$80` 18 pt, `$C0`
+36 pt); `vid.big_glyph` draws each cell of a big character from small row/column maps, and
+`render_run`'s glyph and colour buffers live in RAM bank 55 (it maps the bank and puts the caller's
+back). `selftest/run_sizetest.sh` tests the sizes headless (heights, widths, wrapping, pages, mouse
+columns, RTF save -> load -> save).
 
 The RTF can be re-opened by this program (private `\*\xwp` paragraph tags keep soft wrapping).
 
@@ -51,7 +60,7 @@ and a normal line always follows it. Columns are equal: 63 / columns screen cell
 * Type in a cell; **Tab** goes to the next cell, after the last cell of the last row it adds a row
   (up to 20). **Enter** goes to the same cell one row down, and from the last row out of the table.
   Backspace / Delete work inside the cell; a full cell takes no more characters ("This cell is
-  full"). Bold, italic, underline, fonts and colours work on cell text; 24 pt does not.
+  full"). Bold, italic, underline, fonts and colours work on cell text; the bigger sizes do not.
 * Click the **Table** button while the cursor is in a table: **Add row** (below the current one),
   **Delete row**, **Delete table**, Cancel.
 * A selection that reaches into a table deletes whole rows it covers completely and clears the

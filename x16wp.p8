@@ -411,7 +411,7 @@ main {
                 if f < 3
                     doc.apply_attr(1, f)
                 else if f != 255
-                    doc.apply_attr(4, f - 3)
+                    doc.apply_attr(4, doc.SZ_CODE[f - 3])
             }
             view.B_QUIT -> {
                 if doc.modified {

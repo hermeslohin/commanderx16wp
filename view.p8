@@ -86,6 +86,9 @@ view {
         $fc,$00,$f8,$f8,$f8,$f8,$f8,$00,
         $03,$06,$0c,$18,$18,$0c,$06,$03 ]
 
+    ; by style bits 6-7 (doc.SZ_MASK)
+    str[4] size_name = [iso:"12pt", iso:"24pt", iso:"18pt", iso:"36pt"]
+
     ubyte[64] bt_x
     ubyte[64] bt_y
     ubyte[64] bt_w
@@ -301,10 +304,7 @@ view {
         vid.text(40, 2, vid.font_name(f), (f << 4), 0, vid.C_WHITE)
         vid.text(60, 2, iso:"v", 0, 0, vid.C_WHITE)
         add_btn(39, 2, 22, B_FONT)
-        if (doc.tsty & doc.SZ_LARGE) != 0
-            vid.text(55, 2, iso:"24pt", 0, vid.C_BLUE, vid.C_WHITE)
-        else
-            vid.text(55, 2, iso:"12pt", 0, vid.C_BLUE, vid.C_WHITE)
+        vid.text(55, 2, size_name[doc.tsty >> 6], 0, vid.C_BLUE, vid.C_WHITE)
         ; row 3: colours
         ubyte i
         put(1, 3, iso:"Text", vid.C_WHITE, vid.C_BLACK)
@@ -420,8 +420,8 @@ view {
         vid.r_sty[PAGE_X + 65] = 0
     }
 
-    ; builds the cells of line l for draw_vrow. half = 0/1: top/bottom screen row of a large-size line
-    ; (a line with large characters is 2 rows high; normal characters sit on the bottom row)
+    ; builds the cells of line l for draw_vrow. half = which screen row of the line (0 = top): a line
+    ; with 18/24 pt characters is 2 rows high, with 36 pt 3; smaller characters stand on the bottom row
     sub compose(uword l, ubyte half) {
         doc.ld(l, doc.LBV)
         uword b = doc.LBV
@@ -429,7 +429,7 @@ view {
         ubyte ind = b[doc.O_IND]
         ubyte list = b[doc.O_LIST]
         ubyte flg = b[doc.O_FLG]
-        bool tall = (flg & doc.F_TALL) != 0
+        ubyte lh = doc.line_h(flg)
         ubyte tb = b[doc.O_TBL]
         paper_row()
         ubyte x = PAGE_X + doc.origin_buf()
@@ -442,6 +442,7 @@ view {
         ubyte ch
         ubyte a = 0
         ubyte e = 0
+        ubyte e2
         bool selhere = false
         bool iscur = cursor_on and l == doc.curline
         ubyte curx = 255
@@ -463,9 +464,7 @@ view {
                 s = b[doc.O_STY + i]
                 ch = b[doc.O_CH + i]
                 k = b[doc.O_COL + i]
-                w = 1
-                if (s & doc.SZ_LARGE) != 0
-                    w = 2
+                w = doc.sz_w(s)
                 if tb != 0 {
                     s |= vid.S_UNDER                    ; table grid
                     if tb & doc.TB_HEAD != 0 and k >> 4 == vid.C_WHITE
@@ -478,19 +477,20 @@ view {
                     curw = w
                 }
                 if x + w <= xend {
-                    if w == 2 {
-                        vid.r_ch[x + 1] = ch
-                        vid.r_sty[x + 1] = (s & $3f) | $80
-                        vid.r_col[x + 1] = k
-                        s = (s & $3f) | $40
-                    } else if tall and half == 0 {
-                        ch = 32
-                        s = 0
-                    } else
-                        s &= $3f
-                    vid.r_ch[x] = ch
-                    vid.r_sty[x] = s
-                    vid.r_col[x] = k
+                    ; the character's row on this screen row (it stands on the line's bottom row)
+                    c = 255
+                    if half + w >= lh
+                        c = half + w - lh
+                    for e2 in 0 to w - 1 {
+                        vid.r_ch[x + e2] = ch
+                        vid.r_sty[x + e2] = s & $3f
+                        vid.r_col[x + e2] = k
+                        if c == 255 {
+                            vid.r_ch[x + e2] = 32
+                            vid.r_sty[x + e2] = 0
+                        } else if w > 1
+                            vid.r_big[x + e2] = (s >> 6) << 4 | e2 << 2 | c
+                    }
                 }
                 x += w
             }
@@ -499,11 +499,9 @@ view {
             vid.r_col[x] = (vid.C_RED << 4) | vid.C_BLACK
         if iscur and doc.curcol >= ln {
             curx = x
-            curw = 1
-            if (doc.tsty & doc.SZ_LARGE) != 0
-                curw = 2
+            curw = doc.sz_w(doc.tsty)
         }
-        if list != 0 and (flg & doc.F_SOFT) == 0 and (half == 1 or not tall) {
+        if list != 0 and (flg & doc.F_SOFT) == 0 and half == lh - 1 {
             c = PAGE_X + ind * 4
             if list == 1 {
                 vid.r_sty[c] = vid.S_RAW | $20
@@ -559,11 +557,9 @@ view {
         ubyte kind = doc.vrow_info(vtop + sr)
         uword ln = cx16.r0
         ubyte sb = cx16.r1L
-        vid.vhalf = 0
         deskrow = lsb(vtop) + sr
         paper_row()
         if kind == 0 {
-            vid.vhalf = sb
             compose(ln, sb)
         } else if kind == 1 {
             ; blank paper, already prepared
@@ -681,9 +677,7 @@ view {
 
     sub ensure_visible() {
         uword vr = doc.vrow_of(doc.curline)
-        uword vrb = vr
-        if (doc.meta(doc.curline, doc.O_FLG) & doc.F_TALL) != 0
-            vrb = vr + 1
+        uword vrb = vr + doc.line_h(doc.meta(doc.curline, doc.O_FLG)) - 1
         if vr < vtop + 1 {
             if vr > 0
                 set_vtop(vr - 1)
@@ -881,15 +875,18 @@ view {
         }
     }
 
-    ; popup under the font button: the fonts, then the sizes. returns 0-2 (font), 3 (12 pt), 4 (24 pt) or 255
+    ; popup under the font button: the fonts, then the sizes. returns 0-2 (font), 3-6 (12, 18, 24, 36 pt:
+    ; doc.SZ_CODE[n - 3]) or 255
     sub font_menu() -> ubyte {
         ubyte f
         bool prev = true
-        draw_box(39, 3, 30, 7)
-        vid.fill(40, 7, 28, 0, vid.C_WHITE)
-        vid.fill(40, 8, 28, 0, vid.C_WHITE)
+        draw_box(39, 3, 30, 9)
+        for f in 7 to 10
+            vid.fill(40, f, 28, 0, vid.C_WHITE)
         vid.text(41, 7, iso:"12 pt normal", 0, 0, vid.C_WHITE)
-        vid.text(41, 8, iso:"24 pt large", 0, 0, vid.C_WHITE)
+        vid.text(41, 8, iso:"18 pt", 0, 0, vid.C_WHITE)
+        vid.text(41, 9, iso:"24 pt large", 0, 0, vid.C_WHITE)
+        vid.text(41, 10, iso:"36 pt headline", 0, 0, vid.C_WHITE)
         for f in 0 to vid.NFONTS - 1 {
             vid.fill(40, 4 + f, 28, 0, vid.C_WHITE)
             vid.text(41, 4 + f, vid.font_name(f), f << 4, 0, vid.C_WHITE)
@@ -901,7 +898,7 @@ view {
             poll_mouse()
             if mouse_btn & 1 != 0 {
                 if not prev {
-                    if mouse_cx >= 40 and mouse_cx < 68 and mouse_cy >= 4 and mouse_cy < 9
+                    if mouse_cx >= 40 and mouse_cx < 68 and mouse_cy >= 4 and mouse_cy < 11
                         return mouse_cy - 4
                     return 255
                 }

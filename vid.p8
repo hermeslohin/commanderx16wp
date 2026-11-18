@@ -24,9 +24,10 @@ vid {
     const ubyte C_LBLUE = 14
     const ubyte C_LGRAY = 15
 
-    ; style byte: bit0 bold, bit1 italic, bit2 underline, bit3 raw glyph, bits 4-5 font,
-    ; bit6 large (stored: the character is 2x2 cells). While rendering, a large character is split
-    ; into cells: bit6 = left half, bit7 = right half; vhalf says which row (0 top, 1 bottom).
+    ; style byte: bit0 bold, bit1 italic, bit2 underline, bit3 raw glyph, bits 4-5 font.
+    ; A big character (18, 24, 36 pt) covers 2x2 or 3x3 cells; each of its cells is drawn by
+    ; big_glyph(), described by r_big[cell] = size << 4 | column << 2 | row (size 1 = 24 pt,
+    ; 2 = 18 pt, 3 = 36 pt; column / row of the cell inside the character). 0 = a normal cell.
     const ubyte S_BOLD = 1
     const ubyte S_ITAL = 2
     const ubyte S_UNDER = 4
@@ -40,9 +41,23 @@ vid {
     ubyte[80] r_sty
     ubyte[80] r_col         ; (bg<<4) | fg
     ubyte[80] c_fl
-    ubyte vhalf             ; 0/1: top/bottom screen row of a large-size line (see render_run)
-    uword c_gl = memory("c_gl", 640, 0)
-    uword pairs = memory("pairs", 320, 0)
+    ubyte[80] r_big         ; big character cells (see above); render_run clears it as it goes
+    ; render_run's scratch buffers: glyph rows of each cell and colour pairs, in RAM bank BUFBANK
+    ; (render_run maps it and puts the caller's bank back)
+    const ubyte BUFBANK = 55
+    const uword c_gl = $a000            ; 640 bytes
+    const uword pairs = $a280           ; 320 bytes
+
+    ; big_glyph(): for each kind of cell (24 pt left/right, 18 pt left/right, 36 pt 1st/2nd/3rd) the
+    ; source glyph row / column of each of the 8 pixel rows / columns; 255 = blank (18 pt is 12x12
+    ; pixels, centred across its 2 cells and standing on the baseline)
+    ubyte[4] big_m0 = [0, 0, 2, 4]
+    ubyte[56] big_map = [
+        0,0,1,1,2,2,3,3,  4,4,5,5,6,6,7,7,
+        255,255,255,255,0,0,1,2,  2,3,4,4,5,6,6,7,
+        0,0,0,1,1,1,2,2,  2,3,3,3,4,4,4,5,  5,5,6,6,6,7,7,7 ]
+    ubyte[16] big_col18 = [255,255,0,0,1,2,2,3,  4,4,5,6,6,7,255,255]
+    ubyte[8] big_src
 
     ; Sunset Arcade palette (theme.p8; the original colours are theme.doc_lo/doc_hi, used by RTF export)
     ubyte[16] pal_lo = [$13,$ed,$48,$dd,$8f,$b4,$6e,$d4,$93,$52,$9b,$26,$59,$fa,$cf,$bf]
@@ -193,6 +208,8 @@ vid {
     sub render_run(ubyte row, ubyte col0, ubyte n) {
         if n == 0
             return
+        ubyte obank = cx16.getrambank()
+        cx16.rambank(BUFBANK)
         ubyte i
         ubyte s
         ubyte k
@@ -214,22 +231,25 @@ vid {
                 @(pp) = (bg << 4) | bg
             } else {
                 f = (s >> 4) & 3
-                if (s & S_RAW) != 0
+                c_fl[i] = s & 7
+                if r_big[i] != 0 {
+                    big_glyph(f, r_ch[i], r_big[i], s, gp)
+                    c_fl[i] = s & S_BOLD        ; italic and underline are done by big_glyph
+                } else if (s & S_RAW) != 0
                     fetch_raw(f, r_ch[i], gp)
                 else
                     fetch_glyph(f, r_ch[i], gp)
-                c_fl[i] = (s & 7) | ((s >> 1) & $60)
                 @(pp) = (bg << 4) | bg
                 @(pp+1) = (bg << 4) | fg
                 @(pp+2) = (fg << 4) | bg
                 @(pp+3) = (fg << 4) | fg
             }
+            r_big[i] = 0
             gp += 8
             pp += 4
         }
         ubyte j
         ubyte v
-        ubyte sr
         for r in 0 to 7 {
             sys.set_irqd()
             set_vaddr(row, r, col0)
@@ -252,25 +272,6 @@ vid {
                     i = j
                 } else {
                     pp = pairs + ((i as uword) << 2)
-                    if (fl & $60) != 0 {
-                        ; large character: one glyph pixel -> 2x2 pixels; this cell shows one quarter
-                        sr = (vhalf << 2) + (r >> 1)
-                        g = @(c_gl + ((i as uword) << 3) + sr)
-                        if (fl & S_ITAL) != 0 and sr < 4
-                            g >>= 1
-                        if (fl & S_BOLD) != 0
-                            g |= g >> 1
-                        if (fl & S_UNDER) != 0 and sr == 7
-                            g = $ff
-                        if (fl & $40) != 0
-                            g <<= 4
-                        cx16.VERA_DATA0 = @(pp + (g >> 7) * 3)
-                        cx16.VERA_DATA0 = @(pp + ((g >> 6) & 1) * 3)
-                        cx16.VERA_DATA0 = @(pp + ((g >> 5) & 1) * 3)
-                        cx16.VERA_DATA0 = @(pp + ((g >> 4) & 1) * 3)
-                        i++
-                        continue
-                    }
                     gp = c_gl + ((i as uword) << 3) + r
                     g = @(gp)
                     if fl != 0 {
@@ -289,6 +290,46 @@ vid {
                 }
             }
             sys.clear_irqd()
+        }
+        cx16.rambank(obank)
+    }
+
+    ; the 8 pixel rows of one cell of a big character into dst (see r_big); sty: bold is left to
+    ; render_run, italic slants the top part, underline is drawn under the bottom row of cells
+    sub big_glyph(ubyte font, ubyte ch, ubyte b, ubyte sty, uword dst) {
+        fetch_glyph(font, ch, &big_src)
+        ubyte size = b >> 4
+        ubyte bc = (b >> 2) & 3
+        ubyte br = b & 3
+        ubyte mr = (big_m0[size] + br) << 3
+        ubyte mc = (big_m0[size] + bc) << 3
+        ubyte bottom = 1
+        if size == 3
+            bottom = 2
+        ubyte py
+        ubyte px
+        ubyte q
+        ubyte g
+        ubyte o
+        for py in 0 to 7 {
+            o = 0
+            q = big_map[mr + py]
+            if q != 255 {
+                g = big_src[q]
+                for px in 0 to 7 {
+                    if size == 2
+                        q = big_col18[(bc << 3) + px]
+                    else
+                        q = big_map[mc + px]
+                    if q != 255 and g & ($80 >> q) != 0
+                        o |= $80 >> px
+                }
+            }
+            if sty & S_ITAL != 0 and br == 0
+                o >>= 1
+            if sty & S_UNDER != 0 and br == bottom and py == 7
+                o = $ff
+            @(dst + py) = o
         }
     }
 
