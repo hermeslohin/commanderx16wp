@@ -1,6 +1,7 @@
 ; doc.p8 - document model: lines in banked RAM, paragraphs with soft word wrap, pages, editing, clipboard.
 
 %import syslib
+%import tblx
 
 doc {
     %option ignore_unused
@@ -22,6 +23,8 @@ doc {
     const ubyte O_AL = 242
     const ubyte O_IND = 243
     const ubyte O_LIST = 244
+    const ubyte O_TBL = 245         ; table row: number of columns (1..8) | TB_HEAD on a table's first row
+    const ubyte TB_HEAD = 16        ; (tblx.p8 / x16wptb.p8; 0 = normal line)
     const ubyte F_SOFT = 1
     const ubyte F_HARD = 2
     const ubyte F_TALL = 4          ; the line holds large (2x2 cell) characters: it is 2 screen rows high
@@ -533,6 +536,8 @@ doc {
             c--
         if c >= ln
             c = ln - 1
+        if @(p + O_STY + c) & 8 != 0
+            return                  ; a table border glyph
         tsty = @(p + O_STY + c) & $77
         tfg = @(p + O_COL + c) & 15
         tbg = @(p + O_COL + c) >> 4
@@ -675,7 +680,7 @@ doc {
     }
 
     sub page_break() {
-        if npages >= 60
+        if npages >= 60 or meta(curline, O_TBL) != 0
             return
         newline()
         setmeta(curline, O_FLG, meta(curline, O_FLG) | F_HARD)
@@ -684,6 +689,13 @@ doc {
     }
 
     sub delete_selection() {
+        if tblx.delsel()
+            return
+        delsel_plain()
+    }
+
+    ; delete_selection without tables (x16wptb.p8 calls this for the parts outside tables)
+    sub delsel_plain() {
         sel_norm()
         uword l1 = sn_l1
         uword l2 = sn_l2
@@ -839,8 +851,14 @@ doc {
                 a = sn_c1
             if l == sn_l2 and sn_c2 < b
                 b = sn_c2
+            if kind == 4 and LB[O_TBL] != 0
+                b = a                       ; no 24 pt in tables
             i = a
             while i < b {
+                if LB[O_STY + i] & 8 != 0 {
+                    i++
+                    continue                ; table border glyph
+                }
                 when kind {
                     0 -> {
                         if allset
@@ -884,6 +902,10 @@ doc {
         while p <= endp {
             last = para_last(p)
             cnt = gather(p, last)
+            if LB[O_TBL] != 0 {
+                p = last + 1
+                continue                    ; table rows keep their layout
+            }
             if kind == 0 {
                 if pa_list == 0
                     pa_al = val
@@ -923,6 +945,10 @@ doc {
     sub clip_put(ubyte ch, ubyte sty, ubyte col) {
         if clip_n >= CLIPMAX
             return
+        if sty & 8 != 0 {
+            ch = 32                 ; table border glyph
+            sty = 0
+        }
         cx16.rambank(CLIPBANK)
         uword p = $a000 + clip_n * 3
         @(p) = ch
@@ -983,7 +1009,7 @@ doc {
     }
 
     sub paste() {
-        if clip_n == 0
+        if clip_n == 0 or tblx.paste()
             return
         if sel_active
             delete_selection()

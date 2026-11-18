@@ -15,7 +15,7 @@ sd:
 # old emulator: mouse works (the ximodem build's mouse is currently broken).
 # No -uart1 ximodem there, so the ownCloud feature is unavailable; plain SD card use only.
 run: all
-	cd build && /usr/local/x16emu/x16emuold -scale 2 -prg x16wp.prg -run
+	cd build && /usr/local/x16emu/x16emu -scale 2 -prg x16wp.prg -run
 
 # new emulator with the ximodem virtual modem on UART1 (needed for ownCloud; mouse is broken in it)
 run-modem: all

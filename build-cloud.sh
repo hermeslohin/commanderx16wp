@@ -3,6 +3,7 @@
 #   build/x16wp.prg     main program (main RAM)
 #   build/x16wpcl.bin   ownCloud UI bank library (needs wpsyms.p8 generated from the main build)
 #   build/x16wpsa.bin   Save As folder browser bank library (bank 59, its own wpsyms.p8 in build/sa)
+#   build/x16wptb.bin   tables bank library (bank 57, its own wpsyms.p8 in build/tb)
 #   build/x16link.bin, build/x16docs.bin   X16Link libraries (sources vendored in lib/x16link)
 # and (with an SD dir argument) copies them there as X16WP.PRG, X16WPCL.BIN, X16WPSA.BIN, X16LINK.BIN,
 # X16DOCS.BIN.
@@ -23,9 +24,13 @@ run "$B/x16wpcl.log" $P8 -srcdirs "$HERE" -srcdirs "$B" -out "$B" "$HERE/x16wpcl
 mkdir -p "$B/sa"
 python3 "$HERE/tools/gen_wpsyms.py" "$B" "$B/sa/wpsyms.p8" x16wp 59
 run "$B/x16wpsa.log" $P8 -srcdirs "$HERE" -srcdirs "$B/sa" -out "$B" "$HERE/x16wpsa.p8"
+mkdir -p "$B/tb"
+python3 "$HERE/tools/gen_wpsyms.py" "$B" "$B/tb/wpsyms.p8" x16wp 57
+run "$B/x16wptb.log" $P8 -srcdirs "$HERE" -srcdirs "$B/tb" -out "$B" "$HERE/x16wptb.p8"
 if [ $# -ge 1 ]; then
   SD="$1"; mkdir -p "$SD"
   cp "$B/x16wp.prg" "$SD/X16WP.PRG"; cp "$B/x16wpcl.bin" "$SD/X16WPCL.BIN"; cp "$B/x16wpsa.bin" "$SD/X16WPSA.BIN"
+  cp "$B/x16wptb.bin" "$SD/X16WPTB.BIN"
   cp "$B/x16link.bin" "$SD/X16LINK.BIN"; cp "$B/x16docs.bin" "$SD/X16DOCS.BIN"
   echo "copied to $SD"
 fi

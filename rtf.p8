@@ -12,7 +12,10 @@
 rtf {
     %option ignore_unused
 
-    uword obuf = memory("obuf", 512, 0)
+    ; file buffer (512 bytes) in RAM bank OBANK at $A000, to leave main RAM for the program;
+    ; every access maps that bank first (doc.* calls in between map the line banks)
+    const ubyte OBANK = 56
+    const uword obuf = $a000
     uword on
     bool oerr
 
@@ -21,6 +24,7 @@ rtf {
 
     sub flush_out() {
         if on != 0 {
+            cx16.rambank(OBANK)
             if not diskio.f_write(obuf, on)
                 oerr = true
             on = 0
@@ -28,6 +32,7 @@ rtf {
     }
 
     sub put_c(ubyte c) {
+        cx16.rambank(OBANK)
         @(obuf + on) = c
         on++
         if on >= 500
@@ -99,6 +104,10 @@ rtf {
 
     sub export_line(uword l) {
         doc.ld(l, doc.LB)
+        if doc.LB[doc.O_TBL] != 0 {
+            tblx.tb_export()                ; a table row (x16wptb.p8 writes it from doc.LB)
+            return
+        }
         uword b = doc.LB
         ubyte ln = b[doc.O_LEN]
         ubyte flg = b[doc.O_FLG]
@@ -155,6 +164,12 @@ rtf {
                 }
             }
         }
+        put_runs(b, 0, ln)
+        put_s(iso:"\\par\r\n")
+    }
+
+    ; characters a..e-1 of line buffer b with their formatting (also used by x16wptb.p8 for table cells)
+    sub put_runs(uword b, ubyte a, ubyte e) {
         ubyte i
         ubyte cs = 0
         ubyte cfg = 0
@@ -162,9 +177,8 @@ rtf {
         ubyte s
         ubyte k
         ubyte ch
-        bool any = false
-        if ln != 0 {
-            for i in 0 to ln - 1 {
+        if e > a {
+            for i in a to e - 1 {
                 ch = b[doc.O_CH + i]
                 s = b[doc.O_STY + i] & $77
                 k = b[doc.O_COL + i]
@@ -230,7 +244,6 @@ rtf {
                     put_c(ch)
             }
         }
-        put_s(iso:"\\par\r\n")
     }
 
     ; ======================= import =======================
@@ -267,8 +280,10 @@ rtf {
     ubyte pa_ind_i
     ubyte pa_list_i
     bool got_x16
+    bool in_row             ; inside a table row: x16wptb.p8 collects the cells, \par is a space
 
     sub next_byte() -> ubyte {
+        cx16.rambank(OBANK)
         if ipos >= ilen {
             if ieof
                 return 0
@@ -323,6 +338,10 @@ rtf {
     }
 
     sub start_text() {
+        if in_row {
+            para_open = true            ; cell text collects in sb*; x16wptb.p8 builds the row
+            return
+        }
         if line_started
             return
         line_started = true
@@ -436,6 +455,7 @@ rtf {
         para_open = false
         pn = 0
         first_flush = true
+        in_row = false
         ubyte c
         ubyte pending = 0
         bool havepending = false
@@ -552,7 +572,10 @@ rtf {
 
     sub control_word() {
         if is_word(iso:"par") or is_word(iso:"line") {
-            end_line()
+            if in_row
+                add_char(32)
+            else
+                end_line()
         } else if is_word(iso:"pard") {
             begin_line()
         } else if is_word(iso:"plain") {
@@ -639,6 +662,8 @@ rtf {
                 ch = lsb(wval)
             add_char(ch)
             uc_skip = 1
+        } else if tblx.ready {
+            tblx.tb_word()                  ; \trowd \intbl \cell \row (reads wname)
         }
     }
 }

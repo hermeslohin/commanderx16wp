@@ -36,6 +36,7 @@ view {
     const ubyte B_IND = 19
     const ubyte B_QUIT = 20
     const ubyte B_FONT = 21
+    const ubyte B_TABLE = 22            ; icon 20 (glyphs 40/41, uploaded by X16WPTB.BIN)
     const ubyte B_TXT0 = 100            ; text colour swatches 100..115
     const ubyte B_HIL0 = 120            ; highlight swatches 120..135
     const ubyte B_SCROLL = 200          ; returned for the scroll bar column
@@ -177,6 +178,7 @@ view {
             B_IND -> return iso:"Increase indent"
             B_QUIT -> return iso:"Quit"
             B_FONT -> return iso:"Change font and size"
+            B_TABLE -> return iso:"Table: insert, add or delete rows"
         }
         if id >= B_TXT0 and id < B_TXT0 + 16
             return iso:"Text color"
@@ -277,6 +279,7 @@ view {
         icon(21, 1, 6, B_PASTE, false)
         icon(24, 1, 7, B_ALL, false)
         icon(29, 1, 8, B_PGBRK, false)
+        icon(34, 1, 20, B_TABLE, false)
         ; row 2: character + paragraph formatting
         icon(1, 2, 9, B_BOLD, (doc.tsty & 1) != 0)
         icon(4, 2, 10, B_ITAL, (doc.tsty & 2) != 0)
@@ -427,6 +430,7 @@ view {
         ubyte list = b[doc.O_LIST]
         ubyte flg = b[doc.O_FLG]
         bool tall = (flg & doc.F_TALL) != 0
+        ubyte tb = b[doc.O_TBL]
         paper_row()
         ubyte x = PAGE_X + doc.origin_buf()
         ubyte xend = PAGE_X + 64
@@ -462,6 +466,11 @@ view {
                 w = 1
                 if (s & doc.SZ_LARGE) != 0
                     w = 2
+                if tb != 0 {
+                    s |= vid.S_UNDER                    ; table grid
+                    if tb & doc.TB_HEAD != 0 and k >> 4 == vid.C_WHITE
+                        k = (k & 15) | (vid.C_LGRAY << 4)
+                }
                 if selhere and i >= a and i < e
                     k = (vid.C_RED << 4) | vid.C_BLACK
                 if iscur and i == doc.curcol {

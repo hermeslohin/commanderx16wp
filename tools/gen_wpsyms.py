@@ -14,6 +14,8 @@ if the two builds don't match.
 A sub can name its own bank (7th field): load_raw59 is diskio.load_raw called through JSRFAR with RAM
 bank 59 mapped, so X16WPCL.BIN (bank 62) can load X16WPSA.BIN into bank 59.
 
+Bank 57 is the tables library (x16wptb.p8): it gets its own lists, TB_SUBS / TB_VARS.
+
 usage: gen_wpsyms.py <build-dir> <out.p8> [program-name, default x16wp] [bank, default 62]
 """
 import re
@@ -57,10 +59,64 @@ VARS = [
     ("theme_hop", "theme", "hop", "ubyte?"),
 ]
 
+# the tables library (x16wptb.p8, bank 57) needs the document model and the RTF reader/writer
+TB_SUBS = [s for s in SUBS if s[0] in ("vid_text", "vid_fill", "draw_box", "put", "num", "poll_mouse",
+                                         "set_status", "draw_status", "redraw_everything", "dialog_input")] + [
+    ("ld", "doc", "ld", [("idx", "uword"), ("dst", "uword")], None),
+    ("st", "doc", "st", [("idx", "uword"), ("src", "uword")], None),
+    ("meta", "doc", "meta", [("idx", "uword"), ("off", "ubyte")], "ubyte"),
+    ("setmeta", "doc", "setmeta", [("idx", "uword"), ("off", "ubyte"), ("v", "ubyte")], None),
+    ("insert_blank", "doc", "insert_blank", [("idx", "uword")], "bool"),
+    ("delete_line", "doc", "delete_line", [("idx", "uword")], None),
+    ("mark_range", "doc", "mark_range", [("l1", "uword"), ("l2", "uword")], None),
+    ("mark_from", "doc", "mark_from", [("l", "uword")], None),
+    ("sel_norm", "doc", "sel_norm", [], None),
+    ("delsel_plain", "doc", "delsel_plain", [], None),
+    ("para_last", "doc", "para_last", [("l", "uword")], "uword"),
+    ("clip_get", "doc", "clip_get", [("k", "uword")], None),
+    ("flush_para", "rtf", "flush_para", [], None),
+    ("put_c", "rtf", "put_c", [("c", "ubyte")], None),
+    ("put_n", "rtf", "put_n", [("v", "uword")], None),
+    ("put_runs", "rtf", "put_runs", [("b", "uword"), ("a", "ubyte"), ("e", "ubyte")], None),
+]
+TB_VARS = [v for v in VARS if v[0] in ("mouse_btn", "mouse_cx", "mouse_cy", "modified", "nbuf")] + [
+    ("nlines", "doc", "nlines", "uword"),
+    ("curline", "doc", "curline", "uword"),
+    ("curcol", "doc", "curcol", "ubyte"),
+    ("sel_active", "doc", "sel_active", "bool"),
+    ("sel_l", "doc", "sel_l", "uword"),
+    ("sel_c", "doc", "sel_c", "ubyte"),
+    ("sn_l1", "doc", "sn_l1", "uword"),
+    ("sn_c1", "doc", "sn_c1", "ubyte"),
+    ("sn_l2", "doc", "sn_l2", "uword"),
+    ("sn_c2", "doc", "sn_c2", "ubyte"),
+    ("need_repag", "doc", "need_repag", "bool"),
+    ("full_error", "doc", "full_error", "bool"),
+    ("rd_mode", "doc", "rd_mode", "ubyte"),
+    ("tsty", "doc", "tsty", "ubyte"),
+    ("tfg", "doc", "tfg", "ubyte"),
+    ("tbg", "doc", "tbg", "ubyte"),
+    ("LB", "doc", "LB", "uword"),
+    ("sbch", "doc", "sbch", "uword"),
+    ("sbsty", "doc", "sbsty", "uword"),
+    ("sbcol", "doc", "sbcol", "uword"),
+    ("clip_n", "doc", "clip_n", "uword"),
+    ("cg_ch", "doc", "cg_ch", "ubyte"),
+    ("cg_sty", "doc", "cg_sty", "ubyte"),
+    ("cg_col", "doc", "cg_col", "ubyte"),
+    ("wname", "rtf", "wname", "addr"),
+    ("pn", "rtf", "pn", "uword"),
+    ("para_open", "rtf", "para_open", "bool"),
+    ("first_flush", "rtf", "first_flush", "bool"),
+    ("in_row", "rtf", "in_row", "bool"),
+]
+
 
 def main(build: Path, out: Path, prog: str = "x16wp", bank: str = "62"):
-    global BANK
+    global BANK, SUBS, VARS
     BANK = int(bank)
+    if BANK == 57:
+        SUBS, VARS = TB_SUBS, TB_VARS
     syms = {}
     for line in (build / f"{prog}.vice-mon-list").read_text().splitlines():
         m = re.match(r"al ([0-9a-fA-F]+) \.(\S+)", line)

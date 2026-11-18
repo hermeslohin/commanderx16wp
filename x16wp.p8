@@ -32,6 +32,7 @@ main {
         vid.gfx_init()
         view.init()
         theme.init()             ; after the icons: Sunset glyphs into font slot 3, Quill on
+        tblx.load()              ; tables (X16WPTB.BIN, bank 57; uploads the Table icon)
         doc.init_doc()
         view.set_filename(iso:"untitled.rtf")
         view.set_status(iso:"Welcome! Click icons, type to edit")
@@ -109,6 +110,12 @@ main {
     }
 
     sub key(ubyte k) {
+        if tblx.key(k) {
+            ; typed into a table cell (or a key that would break a table was refused)
+            cursor_event()
+            wantx = doc.cur_x()
+            return
+        }
         when k {
             13 -> {
                 doc.newline()
@@ -390,6 +397,13 @@ main {
             view.B_NUM -> doc.para_op(2, 2)
             view.B_OUT -> doc.para_op(1, 255)
             view.B_IND -> doc.para_op(1, 1)
+            view.B_TABLE -> {
+                if tblx.ready
+                    tblx.tb_menu()
+                else
+                    view.set_status(iso:"Tables need X16WPTB.BIN on the SD card")
+                cursor_event()
+            }
             view.B_FONT -> {
                 ubyte f = view.font_menu()
                 doc.mark_all()

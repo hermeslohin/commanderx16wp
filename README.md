@@ -2,10 +2,11 @@
 
 Build: `make PROG8C="<prog8c 12.3.x command>"` (needs Prog8 12.3.x + 64tass + Java 11+). Everything
 lands in `build/`: **x16wp.prg**, **x16wpcl.bin** (ownCloud UI, RAM bank 62), **x16wpsa.bin** (Save As
-folder browser, RAM bank 59, loaded by x16wpcl.bin; the document's line-order table is in bank 58), **x16link.bin** and
+folder browser, RAM bank 59, loaded by x16wpcl.bin), **x16wptb.bin** (tables, RAM bank 57; the line-order
+table is in bank 58, the RTF file buffer in bank 56), **x16link.bin** and
 **x16docs.bin** (X16Link libraries, banks 60/61, sources vendored in `lib/x16link/`, see
 `lib/x16link/VENDORED.md`). `make sd SD=<dir>` also copies them as X16WP.PRG, X16WPCL.BIN,
-X16WPSA.BIN, X16LINK.BIN, X16DOCS.BIN. Run: `make run` (needs a mouse, 512 KB RAM). Without the .BIN files on the
+X16WPSA.BIN, X16WPTB.BIN, X16LINK.BIN, X16DOCS.BIN. Run: `make run` (needs a mouse, 512 KB RAM). Without the .BIN files on the
 SD card the program still works as a plain SD-card word processor. (`x16wp.prg`/`.asm` in the repo
 root are the original pre-cloud build, kept for reference.)
 
@@ -40,6 +41,28 @@ ones from imported files are split into several paragraphs).
 
 The RTF can be re-opened by this program (private `\*\xwp` paragraph tags keep soft wrapping).
 
+## Tables
+
+The **Table** button (toolbar 1, after Page Break) inserts a table: type `columns x rows`, up to
+**8 x 20** (e.g. `4x3`). It goes on the current line if that is empty, otherwise after the paragraph,
+and a normal line always follows it. Columns are equal: 63 / columns screen cells each (8 columns =
+6 characters per cell, 1 column = 62). The first row has a lavender band; rows are separated by lines.
+
+* Type in a cell; **Tab** goes to the next cell, after the last cell of the last row it adds a row
+  (up to 20). **Enter** goes to the same cell one row down, and from the last row out of the table.
+  Backspace / Delete work inside the cell; a full cell takes no more characters ("This cell is
+  full"). Bold, italic, underline, fonts and colours work on cell text; 24 pt does not.
+* Click the **Table** button while the cursor is in a table: **Add row** (below the current one),
+  **Delete row**, **Delete table**, Cancel.
+* A selection that reaches into a table deletes whole rows it covers completely and clears the
+  selected characters of the rows it covers partly; text is never merged into a table row. Paste
+  into a cell inserts what fits (up to the first line break). Copy turns the cell borders into spaces.
+* RTF: each row is `\trowd`..`\cellx`..`\intbl`..`\cell`..`\row` (the first row `\trhdr`), so Word,
+  LibreOffice and ownCloud show a real table; tables in other programs' RTF are read back the same
+  way (cells cut to the column width). As `.docx` on ownCloud the hub makes a Word table of it.
+* The code is the bank library **X16WPTB.BIN** (RAM bank 57, `x16wptb.p8`; `tblx.p8` is its main-RAM
+  side). Without it on the SD card the Table button says so and tables in RTF files open as text.
+
 ## Save As: folders
 
 **Save As** (SD card and ownCloud) shows a folder browser: the current folder's path, `..`, its
@@ -66,8 +89,8 @@ Open and Save As each ask first: **1** = SD card (as before), **2** = ownCloud.
   then Enter or double-click to open, or Esc to cancel. **RTF** files open as they are.
   **TXT** files are converted to RTF by the hub (UTF-8 → ISO-8859-15, characters with no
   equivalent become `?`, smart quotes/dashes become ASCII). **DOCX** (Word) files are converted to
-  RTF by the hub too (bold/italic/underline, fonts, colours, alignment, indents, lists, page breaks;
-  images and tables are approximated). Other types (spreadsheets are for X16 Sheets), and files
+  RTF by the hub too (bold/italic/underline, fonts, colours, alignment, indents, lists, page breaks,
+  tables up to 8 columns; images are dropped). Other types (spreadsheets are for X16 Sheets), and files
   over 1 MiB, are greyed out. The download goes to a temp file on the SD card and is checked with CRC-32
   before it replaces the document. A dropped link resumes where it stopped.
 * **Save** of a document opened from ownCloud writes it back there, but only if nobody
@@ -107,3 +130,5 @@ saving into them, Replace, Cancel going back, saving back to the same ownCloud f
 * 16 pages max (864 lines), clipboard 2700 characters, file names are typed in a dialog.
 * Opening RTF from other programs is best effort (colours map by index, one font family each).
 * `selftest/selftest.p8` is a scripted headless test (builds a document, exports, re-imports).
+* `selftest/run_tabletest.sh` tests tables headless with the real X16WPTB.BIN: insert, typing, Tab /
+  Enter / Backspace, full cells, guards, selections, Delete table, RTF save -> load -> save identical.
