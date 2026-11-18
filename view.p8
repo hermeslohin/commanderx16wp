@@ -523,11 +523,10 @@ view {
 
     sub scroll_cell(ubyte sr) {
         ; scroll bar in column 79
-        ubyte total = lsb(doc.npages)
         ubyte thumb = 1
-        uword span = doc.npages * 55
-        if span > VIEWROWS {
-            thumb = 1 + lsb(((vtop / 4) * 21) / ((span - VIEWROWS) / 4 + 1))
+        uword span = max_vtop()
+        if span != 0 {
+            thumb = 1 + lsb(((vtop / 4) * 21) / (span / 4 + 1))
             if thumb > 22
                 thumb = 22
         }
@@ -615,13 +614,15 @@ view {
     }
 
     sub max_vtop() -> uword {
-        uword span = doc.npages * 55
+        uword span = (doc.npages as uword) * 55
         if span > VIEWROWS
             return span - VIEWROWS
         return 0
     }
 
     sub set_vtop(uword v) {
+        if v >= $f000           ; scrolled up past the top (vtop - 3 wrapped)
+            v = 0
         if v > max_vtop()
             v = max_vtop()
         if v == vtop
