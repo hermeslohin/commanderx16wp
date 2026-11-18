@@ -43,7 +43,7 @@ SUBS = [
     ("disk_delete", "diskio", "delete", [("filenameptr", "uword")], None),
     ("load_raw59", "diskio", "load_raw", [("filenameptr", "uword"), ("startaddress", "uword")], "uword", 59),
 ]
-# (alias, block, var, kind)  kind: ubyte/byte/uword/bool/addr
+# (alias, block, var, kind)  kind: ubyte/byte/uword/bool/addr, "?" suffix = optional
 VARS = [
     ("mouse_btn", "view", "mouse_btn", "ubyte"),
     ("mouse_cx", "view", "mouse_cx", "ubyte"),
@@ -52,6 +52,9 @@ VARS = [
     ("vtop", "view", "vtop", "uword"),
     ("modified", "doc", "modified", "bool"),
     ("nbuf", "view", "nbuf", "addr"),
+    # Quill's hop counter: = 32 is theme.cheer() (inlined in the WP). Optional ("?"): a test program
+    # that never calls theme.cheer() has no such variable; the library then gets a dummy one.
+    ("theme_hop", "theme", "hop", "ubyte?"),
 ]
 
 
@@ -136,7 +139,15 @@ def main(build: Path, out: Path, prog: str = "x16wp", bank: str = "62"):
             raise SystemExit(f"variable not found: {blk}.{var}")
 
     for alias, blk, var, kind in VARS:
-        addr = var_addr(blk, var)
+        if kind.endswith("?"):
+            kind = kind[:-1]
+            try:
+                addr = var_addr(blk, var)
+            except (SystemExit, StopIteration):
+                o.append(f"    {kind} {alias}")
+                continue
+        else:
+            addr = var_addr(blk, var)
         if kind == "addr":
             o.append(f"    const uword {alias} = ${addr:04x}")
         else:

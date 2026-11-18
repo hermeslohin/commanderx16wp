@@ -7,6 +7,7 @@
 %import strings
 %import doc
 %import vid
+%import theme
 
 rtf {
     %option ignore_unused
@@ -75,11 +76,11 @@ rtf {
         ubyte i
         for i in 0 to 15 {
             put_s(iso:"\\red")
-            put_n(vid.pal_hi[i] * 17)
+            put_n(theme.doc_hi[i] * 17)
             put_s(iso:"\\green")
-            put_n((vid.pal_lo[i] >> 4) * 17)
+            put_n((theme.doc_lo[i] >> 4) * 17)
             put_s(iso:"\\blue")
-            put_n((vid.pal_lo[i] & 15) * 17)
+            put_n((theme.doc_lo[i] & 15) * 17)
             put_c(iso:';')
         }
         put_s(iso:"}\r\n\\paperw12240\\paperh15840\\margl1440\\margr1440\\margt1440\\margb1080\\viewkind1\r\n")

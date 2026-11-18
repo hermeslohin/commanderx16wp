@@ -82,6 +82,6 @@ cloudx {
         } else if p >= 10
             pct[14] = iso:'0' + p / 10
         pct[15] = iso:'0' + p % 10
-        vid.text(1, view.STATUS_ROW, pct, 0, 0, vid.C_LGRAY)
+        vid.text(3, view.STATUS_ROW, pct, vid.S_BOLD, vid.C_YELLOW, vid.C_BLACK)
     }
 }

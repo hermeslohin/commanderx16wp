@@ -6,7 +6,7 @@
 vid {
     %option ignore_unused
 
-    ; --- palette indexes (VERA default C64-like palette, written explicitly in gfx_init) ---
+    ; --- palette indexes (Sunset Arcade colours, see theme.p8; written in gfx_init) ---
     const ubyte C_BLACK = 0
     const ubyte C_WHITE = 1
     const ubyte C_RED = 2
@@ -44,8 +44,9 @@ vid {
     uword c_gl = memory("c_gl", 640, 0)
     uword pairs = memory("pairs", 320, 0)
 
-    ubyte[16] pal_lo = [$00,$ff,$00,$fe,$4c,$c5,$0a,$e7,$85,$40,$77,$33,$77,$f6,$8f,$bb]
-    ubyte[16] pal_hi = [$0,$f,$8,$a,$c,$0,$0,$e,$d,$6,$f,$3,$7,$8,$0,$b]
+    ; Sunset Arcade palette (theme.p8; the original colours are theme.doc_lo/doc_hi, used by RTF export)
+    ubyte[16] pal_lo = [$13,$ed,$48,$dd,$8f,$b4,$6e,$d4,$93,$52,$9b,$26,$59,$fa,$cf,$bf]
+    ubyte[16] pal_hi = [$2,$f,$f,$4,$9,$4,$3,$f,$f,$a,$f,$3,$6,$b,$8,$c]
 
     ; names (iso encoded) of the fonts, and the RTF fonts they map to
     str font_name0 = iso:"Courier New"
@@ -104,7 +105,7 @@ vid {
         cx16.VERA_L0_VSCROLL_H = 0
         cx16.VERA_DC_VIDEO = (cx16.VERA_DC_VIDEO & $07) | $50       ; layer0 + sprites, layer1 off
         cx16.VERA_DC_BORDER = C_DGRAY
-        clear_screen(C_GRAY)
+        clear_screen(C_BLACK)
         cx16.mouse_config(1, 80, 30)
     }
 

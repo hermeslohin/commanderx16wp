@@ -36,9 +36,13 @@ main {
 }
 
 cloud {
+    ; colour indexes (Sunset Arcade theme roles, see theme.p8 in the main program)
+    const ubyte C_BLACK = 0
     const ubyte C_WHITE = 1
     const ubyte C_RED = 2
+    const ubyte C_PURPLE = 4
     const ubyte C_BLUE = 6
+    const ubyte C_YELLOW = 7
     const ubyte C_DGRAY = 11
     const ubyte C_GRAY = 12
     const ubyte C_LGRAY = 15
@@ -60,6 +64,20 @@ cloud {
     extsub @bank SABANK $A009 = sa_key_path() clobbers(A, X, Y)
     extsub @bank SABANK $A00C = sa_exists(uword name @R0) clobbers(X, Y) -> bool @A
     extsub @bank SABANK $A00F = sa_cd_back() clobbers(A, X, Y)
+
+
+    ; Sunset Arcade dialog button: "[label]" drawn as a yellow pill. The pill caps are the theme glyphs
+    ; 243/244 in font slot 3 (theme.p8 uploads them; style $38 = raw glyph from slot 3).
+    ubyte[2] lcap = [243, 0]
+    ubyte[2] rcap = [244, 0]
+    sub button(ubyte x, ubyte y, uword label) {
+        ubyte n = lkut.slen(label) - 1
+        wp.vid_text(x, y, &lcap, $38, C_YELLOW, C_LGRAY)
+        @(label + n) = 0
+        wp.vid_text(x + 1, y, label + 1, 0, C_BLACK, C_YELLOW)
+        @(label + n) = iso:']'
+        wp.vid_text(x + n, y, &rcap, $38, C_YELLOW, C_LGRAY)
+    }
 
     uword TMPN                  ; temp file name (lives in the WP's main RAM)
     sub setup() -> bool {
@@ -186,8 +204,8 @@ cloud {
         if not openable()
             fg = C_GRAY             ; unsupported type: shown, not openable
         if i == sel {
-            bg = C_BLUE
-            fg = C_WHITE
+            bg = C_RED
+            fg = C_BLACK
             wp.vid_fill(PX + 1, y, PW - 2, fg, bg)
         }
         wp.vid_text(PX + 2, y, row + 2, 0, fg, bg)
@@ -260,12 +278,13 @@ cloud {
         top = 0
         sel = 0
         wp.draw_box(PX, PY, PW, PROWS + 6)
-        wp.vid_fill(PX, PY, PW, C_WHITE, C_BLUE)
-        wp.put(PX + 2, PY, iso:"Open from ownCloud - Documents", C_WHITE, C_BLUE)
-        wp.put(PX + 2, PY + 2, iso:"Name                                      Size  Modified        Type", C_DGRAY, C_LGRAY)
+        wp.vid_fill(PX, PY, PW, 0, C_PURPLE)
+        wp.vid_text(PX + 2, PY, iso:"Open from ownCloud - Documents", 1, C_BLACK, C_PURPLE)
+        wp.vid_fill(PX + 1, PY + 2, PW - 2, 0, C_YELLOW)
+        wp.put(PX + 2, PY + 2, iso:"Name                                      Size  Modified        Type", C_BLACK, C_YELLOW)
         wp.put(PX + 17, PY + PROWS + 4, iso:"Enter=open  Esc=cancel", C_DGRAY, C_LGRAY)
-        wp.put(PX + PW - 22, PY + PROWS + 4, iso:"[ Open ]", 0, C_WHITE)
-        wp.put(PX + PW - 12, PY + PROWS + 4, iso:"[Cancel]", 0, C_WHITE)
+        button(PX + PW - 22, PY + PROWS + 4, iso:"[ Open ]")
+        button(PX + PW - 12, PY + PROWS + 4, iso:"[Cancel]")
         busy(iso:"Choose a document (ownCloud Documents/)")
         if total == 0
             wp.put(PX + 2, LROW, iso:"(Documents is empty)", C_DGRAY, C_WHITE)
@@ -339,6 +358,7 @@ cloud {
                     wp.modified = false
                     wp.vtop = 0
                     wp.set_status(iso:"Opened from ownCloud")
+                    wp.theme_hop = 32         ; theme.cheer(): Quill hops
                 } else {
                     wp.set_status(iso:"Could not read that document")
                 }
@@ -368,15 +388,15 @@ cloud {
         ubyte k
         wp.draw_box(14, 11, 52, 7)
         wp.vid_fill(14, 11, 52, C_WHITE, C_RED)
-        wp.put(16, 11, iso:"Save conflict", C_WHITE, C_RED)
+        wp.vid_text(16, 11, iso:"Save conflict", 1, C_WHITE, C_RED)
         wp.put(16, 13, pickname, 0, C_LGRAY)
         if exists
             wp.put(16, 14, iso:"already exists on ownCloud.", 0, C_LGRAY)
         else
             wp.put(16, 14, iso:"was changed on ownCloud since you opened it.", 0, C_LGRAY)
-        wp.put(17, 16, iso:"[Overwrite]", 0, C_WHITE)
-        wp.put(32, 16, iso:"[New name]", 0, C_WHITE)
-        wp.put(47, 16, iso:"[ Cancel ]", 0, C_WHITE)
+        button(17, 16, iso:"[Overwrite]")
+        button(32, 16, iso:"[New name]")
+        button(47, 16, iso:"[ Cancel ]")
         repeat {
             sys.waitvsync()
             k = cbm.GETIN2()
@@ -461,6 +481,7 @@ cloud {
                 wp.set_filename(leaf(&cname))
                 wp.modified = false
                 wp.set_status(iso:"Saved to ownCloud")
+                wp.theme_hop = 32         ; theme.cheer(): Quill hops
                 break
             }
             if st != lkapi.S_CONFLICT {
@@ -534,6 +555,7 @@ cloud {
             wp.set_filename(wp.nbuf)
             wp.modified = false
             wp.set_status(iso:"Saved as RTF")
+            wp.theme_hop = 32         ; theme.cheer(): Quill hops
         } else
             wp.set_status(iso:"SAVE FAILED")
         wp.redraw_everything()

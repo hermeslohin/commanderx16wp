@@ -31,11 +31,29 @@ main {
 }
 
 sa {
+    ; colour indexes (Sunset Arcade theme roles, see theme.p8 in the main program)
+    const ubyte C_BLACK = 0
     const ubyte C_WHITE = 1
+    const ubyte C_RED = 2
+    const ubyte C_PURPLE = 4
     const ubyte C_BLUE = 6
+    const ubyte C_YELLOW = 7
     const ubyte C_DGRAY = 11
     const ubyte C_LGRAY = 15
     const uword pickname = $0650    ; 64 bytes of golden RAM, shared with X16WPCL.BIN
+
+    ; Sunset Arcade dialog button: "[label]" drawn as a yellow pill. The pill caps are the theme glyphs
+    ; 243/244 in font slot 3 (theme.p8 uploads them; style $38 = raw glyph from slot 3).
+    ubyte[2] lcap = [243, 0]
+    ubyte[2] rcap = [244, 0]
+    sub button(ubyte x, ubyte y, uword label) {
+        ubyte n = lkut.slen(label) - 1
+        wp.vid_text(x, y, &lcap, $38, C_YELLOW, C_LGRAY)
+        @(label + n) = 0
+        wp.vid_text(x + 1, y, label + 1, 0, C_BLACK, C_YELLOW)
+        @(label + n) = iso:']'
+        wp.vid_text(x + n, y, &rcap, $38, C_YELLOW, C_LGRAY)
+    }
 
     ubyte[64] home                  ; X16 Write's folder (absolute), for X16LINK.KEY
     ubyte[64] sdpath                ; DOS current directory as we track it
@@ -244,8 +262,8 @@ sa {
             sty = 1                     ; bold
         }
         if i == bsel {
-            bg = C_BLUE
-            fg = C_WHITE
+            bg = C_RED
+            fg = C_BLACK
         }
         wp.vid_fill(BX + 2, y, BW - 4, fg, bg)
         wp.vid_text(BX + 3, y, name, sty, fg, bg)
@@ -309,11 +327,11 @@ sa {
 
     sub draw_dialog() {
         wp.draw_box(BX, BY, BW, 21)
-        wp.vid_fill(BX, BY, BW, C_WHITE, C_BLUE)
+        wp.vid_fill(BX, BY, BW, 0, C_PURPLE)
         if bcl
-            wp.put(BX + 2, BY, iso:"Save As to ownCloud", C_WHITE, C_BLUE)
+            wp.vid_text(BX + 2, BY, iso:"Save As to ownCloud", 1, C_BLACK, C_PURPLE)
         else
-            wp.put(BX + 2, BY, iso:"Save As on the SD card", C_WHITE, C_BLUE)
+            wp.vid_text(BX + 2, BY, iso:"Save As on the SD card", 1, C_BLACK, C_PURPLE)
         wp.put(BX + 2, BY + 2, iso:"Folder:", C_DGRAY, C_LGRAY)
         if bcl {
             lkut.scopy(iso:"/Documents/", &tmp, 72)
@@ -325,12 +343,12 @@ sa {
         if n > 34
             tp += n - 34
         wp.put(BX + 10, BY + 2, tp, 0, C_LGRAY)
-        wp.put(BX + 46, BY + 2, iso:"[ Up ]", 0, C_WHITE)
-        wp.put(BX + 53, BY + 2, iso:"[New folder]", 0, C_WHITE)
+        button(BX + 46, BY + 2, iso:"[ Up ]")
+        button(BX + 53, BY + 2, iso:"[New folder]")
         wp.put(BX + 2, NY, iso:"Name:", 0, C_LGRAY)
         wp.put(BX + 2, HY, iso:"Double-click opens a folder  F7=new folder", C_DGRAY, C_LGRAY)
-        wp.put(BX + 46, HY, iso:"[ Save ]", 0, C_WHITE)
-        wp.put(BX + 56, HY, iso:"[Cancel]", 0, C_WHITE)
+        button(BX + 46, HY, iso:"[ Save ]")
+        button(BX + 56, HY, iso:"[Cancel]")
         draw_name()
     }
 

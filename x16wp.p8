@@ -31,6 +31,7 @@ main {
         vid.load_fonts()
         vid.gfx_init()
         view.init()
+        theme.init()             ; after the icons: Sunset glyphs into font slot 3, Quill on
         doc.init_doc()
         view.set_filename(iso:"untitled.rtf")
         view.set_status(iso:"Welcome! Click icons, type to edit")
@@ -38,6 +39,7 @@ main {
         take_snapshot()
         while running {
             sys.waitvsync()
+            theme.tick()
             handle_keys()
             handle_mouse()
             blink_cursor()
@@ -49,6 +51,7 @@ main {
                 take_snapshot()
             }
         }
+        theme.off()
         vid.gfx_off()
     }
 
@@ -453,6 +456,7 @@ main {
             doc.modified = false
             view.vtop = 0
             view.set_status(iso:"Loaded")
+            theme.cheer()
         } else {
             view.set_status(iso:"Could not open that file")
         }
@@ -486,6 +490,7 @@ main {
             view.set_filename(view.nbuf)
             doc.modified = false
             view.set_status(iso:"Saved as RTF")
+            theme.cheer()
         } else {
             view.set_status(iso:"SAVE FAILED")
         }

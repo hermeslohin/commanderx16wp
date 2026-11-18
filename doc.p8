@@ -27,7 +27,10 @@ doc {
     const ubyte F_TALL = 4          ; the line holds large (2x2 cell) characters: it is 2 screen rows high
     const ubyte SZ_LARGE = $40      ; style bit: character is large (24 pt, 2 cells wide)
 
-    uword order = memory("order", 1728, 0)
+    ; line order: slot number of every line (MAXLINES words). It lives in banked RAM (bank ORDERBANK at
+    ; $A000) to leave main RAM for the program; oslot() maps that bank, slot_ptr() then maps the line's.
+    const ubyte ORDERBANK = 58
+    const uword order = $a000
     uword slotmap = memory("slotmap", 112, 0)
     uword LB = memory("lb", 256, 0)
     uword LBV = memory("lbv", 256, 0)
@@ -97,23 +100,28 @@ doc {
         @(slotmap + b) = @(slotmap + b) & ~(1 << (lsb(s) & 7))
     }
 
+    sub oslot(uword idx) -> uword {
+        cx16.rambank(ORDERBANK)
+        return peekw(order + idx * 2)
+    }
+
     sub ld(uword idx, uword dst) {
-        uword src = slot_ptr(peekw(order + idx * 2))
+        uword src = slot_ptr(oslot(idx))
         sys.memcopy(src, dst, 248)
     }
 
     sub st(uword idx, uword src) {
-        uword dst = slot_ptr(peekw(order + idx * 2))
+        uword dst = slot_ptr(oslot(idx))
         sys.memcopy(src, dst, 248)
     }
 
     sub meta(uword idx, ubyte off) -> ubyte {
-        uword p = slot_ptr(peekw(order + idx * 2))
+        uword p = slot_ptr(oslot(idx))
         return @(p + off)
     }
 
     sub setmeta(uword idx, ubyte off, ubyte v) {
-        uword p = slot_ptr(peekw(order + idx * 2))
+        uword p = slot_ptr(oslot(idx))
         @(p + off) = v
     }
 
@@ -128,6 +136,7 @@ doc {
             return false
         }
         uword i = nlines
+        cx16.rambank(ORDERBANK)
         while i > idx {
             pokew(order + i * 2, peekw(order + (i - 1) * 2))
             i--
@@ -141,12 +150,14 @@ doc {
     }
 
     sub delete_line(uword idx) {
-        free_slot(peekw(order + idx * 2))
+        ubyte ob = cx16.getrambank()
+        free_slot(oslot(idx))
         uword i = idx
         while i + 1 < nlines {
             pokew(order + i * 2, peekw(order + (i + 1) * 2))
             i++
         }
+        cx16.rambank(ob)
         nlines--
     }
 
@@ -516,7 +527,7 @@ doc {
         ubyte ln = meta(curline, O_LEN)
         if ln == 0
             return
-        uword p = slot_ptr(peekw(order + curline * 2))
+        uword p = slot_ptr(oslot(curline))
         ubyte c = curcol
         if c > 0
             c--

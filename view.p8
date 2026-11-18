@@ -3,6 +3,7 @@
 %import syslib
 %import conv
 %import vid
+%import theme
 %import doc
 
 view {
@@ -194,16 +195,23 @@ view {
         }
     }
 
+    ; Sunset icon faces: New pink, Open orange, Save teal, Quit pink, the rest violet with cream
+    ; glyphs; an "on" toggle is black on yellow
     sub icon(ubyte col, ubyte row, ubyte k, ubyte id, bool active) {
-        ubyte bg = vid.C_WHITE
+        ubyte kc = (vid.C_GRAY << 4) | vid.C_WHITE
+        when id {
+            B_NEW, B_QUIT -> kc = vid.C_RED << 4
+            B_OPEN -> kc = vid.C_ORANGE << 4
+            B_SAVE -> kc = vid.C_CYAN << 4
+        }
         if active
-            bg = vid.C_LBLUE
+            kc = vid.C_YELLOW << 4
         vid.r_ch[0] = k * 2
         vid.r_ch[1] = k * 2 + 1
-        vid.r_sty[0] = vid.S_RAW | $30
-        vid.r_sty[1] = vid.S_RAW | $30
-        vid.r_col[0] = (bg << 4)
-        vid.r_col[1] = (bg << 4)
+        vid.r_sty[0] = theme.S_THEME
+        vid.r_sty[1] = theme.S_THEME
+        vid.r_col[0] = kc
+        vid.r_col[1] = kc
         vid.render_run(row, col, 2)
         add_btn(col, row, 2, id)
     }
@@ -238,22 +246,27 @@ view {
     ; ---------------- toolbar ----------------
     sub draw_toolbar() {
         bt_n = 0
-        ; title bar
-        vid.fill(0, 0, 80, vid.C_WHITE, vid.C_BLUE)
-        put(1, 0, iso:"X16 WRITE", vid.C_YELLOW, vid.C_BLUE)
-        put(11, 0, iso:"-", vid.C_WHITE, vid.C_BLUE)
-        put(13, 0, filename, vid.C_WHITE, vid.C_BLUE)
+        ; title bar: Sunset stripes with black chips
+        theme.stripes(0, 0, 80)
+        vid.text(1, 0, iso:" X16 WRITE ", vid.S_BOLD, vid.C_YELLOW, vid.C_BLACK)
+        ubyte x = 14
+        while filename[x - 14] != 0
+            x++
+        vid.fill(13, 0, x - 12, 0, vid.C_BLACK)
+        put(14, 0, filename, vid.C_WHITE, vid.C_BLACK)
         if doc.modified
-            put(30, 0, iso:"(modified)", vid.C_LRED, vid.C_BLUE)
-        put(60, 0, iso:"Page", vid.C_WHITE, vid.C_BLUE)
-        num(65, 0, page_cur() + 1, vid.C_WHITE, vid.C_BLUE)
-        put(68, 0, iso:"of", vid.C_WHITE, vid.C_BLUE)
-        num(71, 0, doc.npages, vid.C_WHITE, vid.C_BLUE)
+            put(x, 0, iso:" (modified) ", vid.C_LRED, vid.C_BLACK)
+        vid.fill(59, 0, 15, 0, vid.C_BLACK)
+        put(60, 0, iso:"Page", vid.C_WHITE, vid.C_BLACK)
+        num(65, 0, page_cur() + 1, vid.C_WHITE, vid.C_BLACK)
+        put(68, 0, iso:"of", vid.C_WHITE, vid.C_BLACK)
+        num(71, 0, doc.npages, vid.C_WHITE, vid.C_BLACK)
+        vid.fill(76, 0, 4, 0, vid.C_BLACK)
         icon(77, 0, 19, B_QUIT, false)
 
-        vid.fill(0, 1, 80, 0, vid.C_LGRAY)
-        vid.fill(0, 2, 80, 0, vid.C_LGRAY)
-        vid.fill(0, 3, 80, 0, vid.C_LGRAY)
+        vid.fill(0, 1, 80, 0, vid.C_DGRAY)
+        vid.fill(0, 2, 80, 0, vid.C_DGRAY)
+        vid.fill(0, 3, 80, 0, vid.C_BLACK)
         ; row 1: file / edit / page
         icon(1, 1, 0, B_NEW, false)
         icon(4, 1, 1, B_OPEN, false)
@@ -279,6 +292,8 @@ view {
         icon(34, 2, 18, B_IND, false)
         ; font selector
         ubyte f = (doc.tsty >> 4) & 3
+        theme.cap(38, 2, theme.G_LCAP, vid.C_WHITE, vid.C_DGRAY)
+        theme.cap(61, 2, theme.G_RCAP, vid.C_WHITE, vid.C_DGRAY)
         vid.fill(39, 2, 22, 0, vid.C_WHITE)
         vid.text(40, 2, vid.font_name(f), (f << 4), 0, vid.C_WHITE)
         vid.text(60, 2, iso:"v", 0, 0, vid.C_WHITE)
@@ -289,8 +304,8 @@ view {
             vid.text(55, 2, iso:"12pt", 0, vid.C_BLUE, vid.C_WHITE)
         ; row 3: colours
         ubyte i
-        put(1, 3, iso:"Text", 0, vid.C_LGRAY)
-        put(41, 3, iso:"Back", 0, vid.C_LGRAY)
+        put(1, 3, iso:"Text", vid.C_WHITE, vid.C_BLACK)
+        put(41, 3, iso:"Back", vid.C_WHITE, vid.C_BLACK)
         for i in 0 to 15 {
             swatch(6 + i * 2, i, B_TXT0 + i, doc.tfg == i)
             swatch(46 + i * 2, i, B_HIL0 + i, doc.tbg == i)
@@ -320,7 +335,10 @@ view {
 
     sub draw_ruler() {
         ubyte c
-        vid.fill(0, 4, 80, 0, vid.C_LGRAY)
+        theme.desk(0, 4, 80)
+        ; yellow tape with red margin markers at both ends
+        theme.cap(PAGE_X - 1, 4, theme.G_LCAP, vid.C_RED, vid.C_BLACK)
+        theme.cap(PAGE_X + 64, 4, theme.G_RCAP, vid.C_RED, vid.C_BLACK)
         for c in 0 to 63 {
             vid.r_ch[c] = iso:'.'
             if c % 8 == 0
@@ -328,7 +346,7 @@ view {
             else if c % 4 == 0
                 vid.r_ch[c] = iso:'+'
             vid.r_sty[c] = 0
-            vid.r_col[c] = (vid.C_WHITE << 4) | vid.C_DGRAY
+            vid.r_col[c] = (vid.C_YELLOW << 4) | vid.C_BLACK
         }
         vid.render_run(4, PAGE_X, 64)
     }
@@ -352,28 +370,51 @@ view {
     }
 
     sub draw_status() {
-        vid.fill(0, STATUS_ROW, 80, 0, vid.C_LGRAY)
-        put(1, STATUS_ROW, status_msg, 0, vid.C_LGRAY)
-        put(56, STATUS_ROW, iso:"Ln", vid.C_DGRAY, vid.C_LGRAY)
-        num(59, STATUS_ROW, (doc.curline - doc.pfirst[page_cur()]) + 1, 0, vid.C_LGRAY)
-        put(65, STATUS_ROW, iso:"Col", vid.C_DGRAY, vid.C_LGRAY)
-        num(69, STATUS_ROW, doc.curcol + 1, 0, vid.C_LGRAY)
+        ; Quill (theme sprite) sits in columns 0-1
+        vid.fill(0, STATUS_ROW, 80, 0, vid.C_BLACK)
+        put(3, STATUS_ROW, status_msg, vid.C_WHITE, vid.C_BLACK)
+        put(56, STATUS_ROW, iso:"Ln", vid.C_YELLOW, vid.C_BLACK)
+        num(59, STATUS_ROW, (doc.curline - doc.pfirst[page_cur()]) + 1, vid.C_WHITE, vid.C_BLACK)
+        put(65, STATUS_ROW, iso:"Col", vid.C_YELLOW, vid.C_BLACK)
+        num(69, STATUS_ROW, doc.curcol + 1, vid.C_WHITE, vid.C_BLACK)
     }
 
     ; ---------------- page view ----------------
-    sub paper_row() {
+    ubyte deskrow           ; virtual row (vtop + screen row) being drawn: the desk stars scroll with the page
+
+    ; starry desk cells like theme.desk(), into the r_ arrays (pattern by column and virtual row)
+    sub desk_row() {
         ubyte c
-        ubyte desk = (vid.C_GRAY << 4) | vid.C_GRAY
+        ubyte h
         for c in 0 to 79 {
             vid.r_ch[c] = 32
             vid.r_sty[c] = 0
-            vid.r_col[c] = desk
+            vid.r_col[c] = (vid.C_BLACK << 4) | vid.C_GRAY
+            h = (c * 7 + deskrow * 13) & 31
+            if h == 3 {
+                vid.r_ch[c] = theme.G_STAR2
+                vid.r_sty[c] = theme.S_THEME
+            } else if h == 11 or h == 22 {
+                vid.r_ch[c] = theme.G_STAR
+                vid.r_sty[c] = theme.S_THEME
+            }
+        }
+    }
+
+    sub paper_row() {
+        ubyte c
+        desk_row()
+        for c in PAGE_X - 1 to PAGE_X + 64 {
+            vid.r_ch[c] = 32
+            vid.r_sty[c] = 0
         }
         for c in PAGE_X to PAGE_X + 63
             vid.r_col[c] = (vid.C_WHITE << 4) | vid.C_BLACK
         vid.r_col[PAGE_X - 1] = 0
         vid.r_col[PAGE_X + 64] = 0
         vid.r_col[PAGE_X + 65] = (vid.C_DGRAY << 4) | vid.C_DGRAY
+        vid.r_ch[PAGE_X + 65] = 32
+        vid.r_sty[PAGE_X + 65] = 0
     }
 
     ; builds the cells of line l for draw_vrow. half = 0/1: top/bottom screen row of a large-size line
@@ -422,7 +463,7 @@ view {
                 if (s & doc.SZ_LARGE) != 0
                     w = 2
                 if selhere and i >= a and i < e
-                    k = (vid.C_BLUE << 4) | vid.C_WHITE
+                    k = (vid.C_RED << 4) | vid.C_BLACK
                 if iscur and i == doc.curcol {
                     curx = x
                     curw = w
@@ -446,7 +487,7 @@ view {
             }
         }
         if selhere and a <= ln and e > ln and x < xend
-            vid.r_col[x] = (vid.C_BLUE << 4) | vid.C_WHITE
+            vid.r_col[x] = (vid.C_RED << 4) | vid.C_BLACK
         if iscur and doc.curcol >= ln {
             curx = x
             curw = 1
@@ -495,15 +536,13 @@ view {
         }
         vid.r_sty[79] = 0
         vid.r_ch[79] = 32
-        vid.r_col[79] = (vid.C_LGRAY << 4) | vid.C_BLACK
+        vid.r_col[79] = (vid.C_BLACK << 4) | vid.C_RED
         if sr == 0 {
             vid.r_ch[79] = iso:'^'
-            vid.r_col[79] = (vid.C_WHITE << 4) | vid.C_BLACK
         } else if sr == VIEWROWS - 1 {
             vid.r_ch[79] = iso:'v'
-            vid.r_col[79] = (vid.C_WHITE << 4) | vid.C_BLACK
         } else if sr == thumb {
-            vid.r_col[79] = (vid.C_DGRAY << 4) | vid.C_DGRAY
+            vid.r_col[79] = (vid.C_RED << 4) | vid.C_RED
         }
     }
 
@@ -512,6 +551,7 @@ view {
         uword ln = cx16.r0
         ubyte sb = cx16.r1L
         vid.vhalf = 0
+        deskrow = lsb(vtop) + sr
         paper_row()
         if kind == 0 {
             vid.vhalf = sb
@@ -520,13 +560,16 @@ view {
             ; blank paper, already prepared
         } else if kind == 2 {
             ubyte c
-            ubyte desk = (vid.C_GRAY << 4) | vid.C_GRAY
-            for c in 0 to 79
-                vid.r_col[c] = desk
-            ; page top edge: dark line with a label
-            for c in PAGE_X - 1 to PAGE_X + 64
-                vid.r_col[c] = (vid.C_BLACK << 4) | vid.C_BLACK
-            vid.r_col[PAGE_X + 65] = (vid.C_DGRAY << 4) | vid.C_DGRAY
+            ; page top edge: a Sunset stripe bar with a black label chip
+            for c in PAGE_X - 1 to PAGE_X + 64 {
+                vid.r_ch[c] = theme.G_STRIPE
+                vid.r_sty[c] = theme.S_THEME
+                vid.r_col[c] = (vid.C_ORANGE << 4) | vid.C_RED
+            }
+            for c in PAGE_X + 26 to PAGE_X + 34 {
+                vid.r_ch[c] = 32
+                vid.r_sty[c] = 0
+            }
             ubyte pg = lsb(ln) + 1
             vid.r_ch[PAGE_X + 27] = iso:'P'
             vid.r_ch[PAGE_X + 28] = iso:'a'
@@ -536,12 +579,10 @@ view {
             if pg < 10
                 vid.r_ch[PAGE_X + 32] = iso:' '
             vid.r_ch[PAGE_X + 33] = iso:'0' + pg % 10
-            for c in PAGE_X + 27 to PAGE_X + 33
+            for c in PAGE_X + 26 to PAGE_X + 34
                 vid.r_col[c] = (vid.C_BLACK << 4) | vid.C_YELLOW
         } else {
-            ubyte c2
-            for c2 in 0 to 79
-                vid.r_col[c2] = (vid.C_GRAY << 4) | vid.C_GRAY
+            desk_row()
         }
         scroll_cell(sr)
         vid.render_run(ROW0 + sr, 0, 80)
@@ -732,6 +773,11 @@ view {
         vid.fill(x, y + h - 1, w, 0, vid.C_BLACK)
     }
 
+    ; Sunset dialog button: a yellow pill, slen(label) + 2 cells wide
+    sub button(ubyte x, ubyte y, str label) {
+        theme.pill(x, y, label, vid.C_BLACK, vid.C_YELLOW, vid.C_LGRAY)
+    }
+
     ; text input dialog; returns true if OK was chosen. buf is a 0-terminated iso string buffer
     sub dialog_input(str title, uword buf, ubyte maxlen) -> bool {
         ubyte n = 0
@@ -739,12 +785,12 @@ view {
         bool prev = true
         while @(buf + n) != 0
             n++
-        draw_box(16, 11, 48, 7)
-        vid.fill(16, 11, 48, vid.C_WHITE, vid.C_BLUE)
-        put(18, 11, title, vid.C_WHITE, vid.C_BLUE)
+        draw_box(16, 11, 48, 8)            ; buttons on row 17, black edge below
+        vid.fill(16, 11, 48, 0, vid.C_PURPLE)
+        vid.text(18, 11, title, vid.S_BOLD, vid.C_BLACK, vid.C_PURPLE)
         put(18, 13, iso:"File name:", 0, vid.C_LGRAY)
-        put(24, 17, iso:"[ OK ]", 0, vid.C_WHITE)
-        put(40, 17, iso:"[ Cancel ]", 0, vid.C_WHITE)
+        button(24, 17, iso:" OK ")
+        button(40, 17, iso:" Cancel ")
         put(18, 15, iso:"Enter = OK    Esc = Cancel", vid.C_DGRAY, vid.C_LGRAY)
         bool dirty = true
         repeat {
@@ -799,12 +845,12 @@ view {
     sub dialog_yesno(str msg) -> bool {
         bool prev = true
         ubyte k
-        draw_box(20, 12, 40, 5)
-        vid.fill(20, 12, 40, vid.C_WHITE, vid.C_RED)
-        put(22, 12, iso:"Please confirm", vid.C_WHITE, vid.C_RED)
+        draw_box(20, 12, 40, 6)            ; buttons on row 16, black edge below
+        vid.fill(20, 12, 40, 0, vid.C_RED)
+        vid.text(22, 12, iso:"Please confirm", vid.S_BOLD, vid.C_WHITE, vid.C_RED)
         put(22, 14, msg, 0, vid.C_LGRAY)
-        put(26, 16, iso:"[ Yes ]", 0, vid.C_WHITE)
-        put(44, 16, iso:"[ No ]", 0, vid.C_WHITE)
+        button(26, 16, iso:" Yes ")
+        button(44, 16, iso:" No ")
         repeat {
             sys.waitvsync()
             k = cbm.GETIN2()

@@ -2,7 +2,7 @@
 
 Build: `make PROG8C="<prog8c 12.3.x command>"` (needs Prog8 12.3.x + 64tass + Java 11+). Everything
 lands in `build/`: **x16wp.prg**, **x16wpcl.bin** (ownCloud UI, RAM bank 62), **x16wpsa.bin** (Save As
-folder browser, RAM bank 59, loaded by x16wpcl.bin), **x16link.bin** and
+folder browser, RAM bank 59, loaded by x16wpcl.bin; the document's line-order table is in bank 58), **x16link.bin** and
 **x16docs.bin** (X16Link libraries, banks 60/61, sources vendored in `lib/x16link/`, see
 `lib/x16link/VENDORED.md`). `make sd SD=<dir>` also copies them as X16WP.PRG, X16WPCL.BIN,
 X16WPSA.BIN, X16LINK.BIN, X16DOCS.BIN. Run: `make run` (needs a mouse, 512 KB RAM). Without the .BIN files on the
@@ -12,6 +12,9 @@ root are the original pre-cloud build, kept for reference.)
 ## Screen
 Row 0 title/quit - rows 1-2 icon toolbars - row 3 text colour + highlight swatches - row 4 ruler -
 scrolling page view with page border, per-page title bars and a scroll bar - status bar (tool tips on hover).
+Colours: the "Sunset Arcade" theme shared by the X16 Office apps (`theme.p8`): striped title bar, cream
+page on a starry desk, yellow ruler tape, and Quill the pencil mascot in the status bar, who hops after a
+successful open or save. Saved documents keep the original colours (RTF export uses `theme.doc_lo/doc_hi`).
 
 Icons: New, Open, Save, Save As, Cut, Copy, Paste, Select All, Page Break | Bold, Italic, Underline,
 Left/Center/Right, Bullets, Numbers, Outdent, Indent, Font menu | 16 text colours | 16 highlight colours.
