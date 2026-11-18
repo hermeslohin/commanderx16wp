@@ -37,6 +37,7 @@ tb {
     const ubyte O_LEN = 240
     const ubyte O_FLG = 241
     const ubyte O_TBL = 245
+    const ubyte O_PIC = 246             ; picture lines (x16wppi.p8): O_PIC + 1 = row, byte 0 = lines
     const ubyte TB_HEAD = 16
     const ubyte F_SOFT = 1
     const ubyte SEP_CH = 93             ; PETSCII vertical line in font slot 2 (upper case / graphics)
@@ -579,7 +580,10 @@ tb {
         }
         uword cur = wp.curline
         uword at
-        if row(cur) == 0 and wp.meta(cur, O_LEN) == 0 and wp.para_last(cur) == cur {
+        if wp.meta(cur, O_PIC) != 0 {
+            ; on a picture (x16wppi.p8): after its last line
+            at = cur - wp.meta(cur, O_PIC + 1) + wp.meta(cur, 0)
+        } else if row(cur) == 0 and wp.meta(cur, O_LEN) == 0 and wp.para_last(cur) == cur {
             at = cur                                ; on an empty line: the table goes here
         } else {
             at = wp.para_last(cur) + 1              ; after the paragraph

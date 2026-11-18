@@ -109,6 +109,10 @@ rtf {
             tblx.tb_export()                ; a table row (x16wptb.p8 writes it from doc.LB)
             return
         }
+        if doc.LB[doc.O_PIC] != 0 {
+            pix.pi_export()                 ; a picture line (x16wppi.p8: the BMX on its first line)
+            return
+        }
         uword b = doc.LB
         ubyte ln = b[doc.O_LEN]
         ubyte flg = b[doc.O_FLG]
@@ -530,6 +534,10 @@ rtf {
                         }
                         if is_word(iso:"xwp") and skip_depth == 0 {
                             apply_xwp(wval)
+                        } else if is_word(iso:"xwpbmx") and skip_depth == 0 and pix.ready {
+                            pix.pl_import()         ; reads the hex up to the closing brace
+                            pending = iso:'}'
+                            havepending = true
                         }
                     }
                     skip_depth = depth

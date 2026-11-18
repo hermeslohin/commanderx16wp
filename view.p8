@@ -37,6 +37,7 @@ view {
     const ubyte B_QUIT = 20
     const ubyte B_FONT = 21
     const ubyte B_TABLE = 22            ; icon 20 (glyphs 40/41, uploaded by X16WPTB.BIN)
+    const ubyte B_PIC = 23              ; icon 21 (glyphs 42/43, uploaded by X16WPPI.BIN); tool tips: x16wppi.p8
     const ubyte B_TXT0 = 100            ; text colour swatches 100..115
     const ubyte B_HIL0 = 120            ; highlight swatches 120..135
     const ubyte B_SCROLL = 200          ; returned for the scroll bar column
@@ -158,38 +159,6 @@ view {
         }
     }
 
-    sub tip(ubyte id) -> str {
-        when id {
-            B_NEW -> return iso:"New document"
-            B_OPEN -> return iso:"Open from SD card or ownCloud"
-            B_SAVE -> return iso:"Save (back to ownCloud if opened there)"
-            B_SAVEAS -> return iso:"Save As on SD card or ownCloud"
-            B_CUT -> return iso:"Cut"
-            B_COPY -> return iso:"Copy"
-            B_PASTE -> return iso:"Paste"
-            B_ALL -> return iso:"Select all"
-            B_PGBRK -> return iso:"Insert page break"
-            B_BOLD -> return iso:"Bold"
-            B_ITAL -> return iso:"Italic"
-            B_UNDER -> return iso:"Underline"
-            B_AL -> return iso:"Align left"
-            B_AC -> return iso:"Center"
-            B_AR -> return iso:"Align right"
-            B_BUL -> return iso:"Bulleted list"
-            B_NUM -> return iso:"Numbered list"
-            B_OUT -> return iso:"Decrease indent"
-            B_IND -> return iso:"Increase indent"
-            B_QUIT -> return iso:"Quit"
-            B_FONT -> return iso:"Change font and size"
-            B_TABLE -> return iso:"Table: insert, add or delete rows"
-        }
-        if id >= B_TXT0 and id < B_TXT0 + 16
-            return iso:"Text color"
-        if id >= B_HIL0 and id < B_HIL0 + 16
-            return iso:"Highlight color"
-        return iso:""
-    }
-
     sub add_btn(ubyte x, ubyte y, ubyte w, ubyte id) {
         if bt_n < 64 {
             bt_x[bt_n] = x
@@ -284,6 +253,7 @@ view {
         icon(24, 1, 7, B_ALL, false)
         icon(29, 1, 8, B_PGBRK, false)
         icon(34, 1, 20, B_TABLE, false)
+        icon(37, 1, 21, B_PIC, false)
         ; row 2: character + paragraph formatting
         icon(1, 2, 9, B_BOLD, (doc.tsty & 1) != 0)
         icon(4, 2, 10, B_ITAL, (doc.tsty & 2) != 0)
@@ -611,6 +581,8 @@ view {
         }
         scroll_cell(sr)
         vid.render_run(ROW0 + sr, 0, 80)
+        if kind == 0 and doc.LBV[doc.O_PIC] != 0
+            pix.pi_draw(sr)                 ; compose() left the line in doc.LBV
     }
 
     sub redraw_all() {

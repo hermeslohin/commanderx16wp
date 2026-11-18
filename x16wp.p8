@@ -33,6 +33,7 @@ main {
         view.init()
         theme.init()             ; after the icons: Sunset glyphs into font slot 3, Quill on
         tblx.load()              ; tables (X16WPTB.BIN, bank 57; uploads the Table icon)
+        pix.load()               ; pictures and tool tips (X16WPPI.BIN, bank 54; uploads the Picture icon)
         doc.init_doc()
         view.set_filename(iso:"untitled.rtf")
         view.set_status(iso:"Welcome! Click icons, type to edit")
@@ -110,8 +111,11 @@ main {
     }
 
     sub key(ubyte k) {
-        if tblx.key(k) {
-            ; typed into a table cell (or a key that would break a table was refused)
+        bool done = pix.key(k)          ; on or next to a picture (refused, or the picture deleted)
+        if not done
+            done = tblx.key(k)
+        if done {
+            ; typed into a table cell (or a key that would break a table or picture was refused)
             cursor_event()
             wantx = doc.cur_x()
             return
@@ -228,11 +232,7 @@ main {
         ubyte id = view.find_button(cx, cy)
         if id != last_tip {
             last_tip = id
-            if id != 0
-                view.set_status(view.tip(id))
-            else
-                view.set_status(iso:"")
-            view.draw_status()
+            pix.tip(id)                     ; X16WPPI.BIN holds the tool tips
         }
     }
 
@@ -402,6 +402,11 @@ main {
                     tblx.tb_menu()
                 else
                     view.set_status(iso:"Tables need X16WPTB.BIN on the SD card")
+                cursor_event()
+            }
+            view.B_PIC -> {
+                if pix.ready                ; (without X16WPPI.BIN / X16WPPL.BIN the icon stays blank)
+                    pix.pl_button()
                 cursor_event()
             }
             view.B_FONT -> {

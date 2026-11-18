@@ -14,7 +14,8 @@ if the two builds don't match.
 A sub can name its own bank (7th field): load_raw59 is diskio.load_raw called through JSRFAR with RAM
 bank 59 mapped, so X16WPCL.BIN (bank 62) can load X16WPSA.BIN into bank 59.
 
-Bank 57 is the tables library (x16wptb.p8): it gets its own lists, TB_SUBS / TB_VARS.
+Bank 57 is the tables library (x16wptb.p8): it gets its own lists, TB_SUBS / TB_VARS; bank 54 is the
+pictures library (x16wppi.p8) and bank 56 its loading library (x16wppl.p8): PI_SUBS / PI_VARS.
 
 usage: gen_wpsyms.py <build-dir> <out.p8> [program-name, default x16wp] [bank, default 62]
 """
@@ -111,12 +112,37 @@ TB_VARS = [v for v in VARS if v[0] in ("mouse_btn", "mouse_cx", "mouse_cy", "mod
     ("in_row", "rtf", "in_row", "bool"),
 ]
 
+# the pictures library (x16wppi.p8, bank 54): document model, RTF reader/writer, file reading and the
+# bank copy helper doc.bxfer (the library can't switch RAM banks itself)
+PI_SUBS = [s for s in TB_SUBS if s[0] in ("set_status", "draw_status", "redraw_everything", "dialog_input",
+                                            "ld", "st", "meta", "setmeta", "insert_blank", "delete_line",
+                                            "mark_from", "sel_norm", "para_last", "flush_para", "put_c")] + [
+    ("delete_selection", "doc", "delete_selection", [], None),
+    ("bxfer", "doc", "bxfer", [("b", "ubyte"), ("a", "uword"), ("d", "uword"), ("n", "uword"), ("out", "ubyte")], None),
+    ("put_hex", "rtf", "put_hex", [("v", "ubyte")], None),
+    ("next_byte", "rtf", "next_byte", [], "ubyte"),
+    ("f_open", "diskio", "f_open", [("filenameptr", "uword")], "bool"),
+    ("f_read", "diskio", "f_read", [("bufferpointer", "uword"), ("num_bytes", "uword")], "uword"),
+    ("f_close", "diskio", "f_close", [], None),
+    ("disk_delete", "diskio", "delete", [("filenameptr", "uword")], None),
+    ("cloud_menu", "cloudx", "menu", [("which", "ubyte")], "ubyte"),
+]
+PI_VARS = [v for v in TB_VARS if v[0] in ("modified", "nbuf", "nlines", "curline", "curcol", "sel_active",
+                                            "sel_l", "sel_c", "sn_l1", "sn_c1", "sn_l2", "sn_c2", "need_repag",
+                                            "full_error", "rd_mode", "LB", "sbch", "first_flush", "para_open",
+                                            "pn")] + [
+    ("LBV", "doc", "LBV", "uword"),
+    ("theme_hop", "theme", "hop", "ubyte?"),
+]
+
 
 def main(build: Path, out: Path, prog: str = "x16wp", bank: str = "62"):
     global BANK, SUBS, VARS
     BANK = int(bank)
     if BANK == 57:
         SUBS, VARS = TB_SUBS, TB_VARS
+    elif BANK in (54, 56):
+        SUBS, VARS = PI_SUBS, PI_VARS
     syms = {}
     for line in (build / f"{prog}.vice-mon-list").read_text().splitlines():
         m = re.match(r"al ([0-9a-fA-F]+) \.(\S+)", line)

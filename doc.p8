@@ -2,6 +2,7 @@
 
 %import syslib
 %import tblx
+%import pix
 
 doc {
     %option ignore_unused
@@ -25,6 +26,8 @@ doc {
     const ubyte O_LIST = 244
     const ubyte O_TBL = 245         ; table row: number of columns (1..8) | TB_HEAD on a table's first row
     const ubyte TB_HEAD = 16        ; (tblx.p8 / x16wptb.p8; 0 = normal line)
+    const ubyte O_PIC = 246         ; picture line: picture id 1..15 (pix.p8 / x16wppi.p8; 0 = no picture)
+    const ubyte O_PROW = 247        ; picture line: its row in the picture (byte 0: the picture's line count)
     const ubyte F_SOFT = 1
     const ubyte F_HARD = 2
     const ubyte F_TALL = 4          ; the line holds 18/24 pt (2x2 cell) characters: it is 2 screen rows high
@@ -121,6 +124,18 @@ doc {
     sub st(uword idx, uword src) {
         uword dst = slot_ptr(oslot(idx))
         sys.memcopy(src, dst, 248)
+    }
+
+    ; n bytes between RAM bank b at a and main RAM at d (out: main -> bank), for x16wppi.p8, which
+    ; can't switch banks itself; the range must not cross the end of the bank (out: 0 or 1)
+    sub bxfer(ubyte b, uword a, uword d, uword n, ubyte out) {
+        ubyte ob = cx16.getrambank()
+        cx16.rambank(b)
+        if out != 0
+            sys.memcopy(d, a, n)
+        else
+            sys.memcopy(a, d, n)
+        cx16.rambank(ob)
     }
 
     sub meta(uword idx, ubyte off) -> ubyte {
@@ -276,12 +291,16 @@ doc {
         ubyte p = 0
         ubyte h
         ubyte f
+        ubyte need
         pfirst[0] = 0
         for l in 0 to nlines - 1 {
             f = meta(l, O_FLG)
             h = line_h(f)
+            need = h
+            if meta(l, O_PIC) != 0 and meta(l, O_PROW) == 0
+                need = meta(l, 0)                   ; a picture's first line: keep it on one page
             if l > 0 {
-                if (f & F_HARD) != 0 or rows + h > PLINES {
+                if (f & F_HARD) != 0 or rows + need > PLINES {
                     if p < 63 {
                         p++
                         pfirst[p] = l
@@ -706,7 +725,7 @@ doc {
     }
 
     sub page_break() {
-        if npages >= 60 or meta(curline, O_TBL) != 0
+        if npages >= 60 or meta(curline, O_TBL) != 0 or meta(curline, O_PIC) != 0
             return
         newline()
         setmeta(curline, O_FLG, meta(curline, O_FLG) | F_HARD)
@@ -715,6 +734,8 @@ doc {
     }
 
     sub delete_selection() {
+        if pix.delsel()
+            return
         if tblx.delsel()
             return
         delsel_plain()
@@ -928,9 +949,9 @@ doc {
         while p <= endp {
             last = para_last(p)
             cnt = gather(p, last)
-            if LB[O_TBL] != 0 {
+            if LB[O_TBL] != 0 or LB[O_PIC] != 0 {
                 p = last + 1
-                continue                    ; table rows keep their layout
+                continue                    ; table rows and pictures keep their layout
             }
             if kind == 0 {
                 if pa_list == 0
@@ -1035,6 +1056,7 @@ doc {
     }
 
     sub paste() {
+        pix.paste()                         ; on a picture: paste on a new line after it
         if clip_n == 0 or tblx.paste()
             return
         if sel_active

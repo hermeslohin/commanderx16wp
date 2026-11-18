@@ -3,10 +3,12 @@
 Build: `make PROG8C="<prog8c 12.3.x command>"` (needs Prog8 12.3.x + 64tass + Java 11+). Everything
 lands in `build/`: **x16wp.prg**, **x16wpcl.bin** (ownCloud UI, RAM bank 62), **x16wpsa.bin** (Save As
 folder browser, RAM bank 59, loaded by x16wpcl.bin), **x16wptb.bin** (tables, RAM bank 57; the line-order
-table is in bank 58, the RTF file buffer in bank 56, the renderer's buffers in bank 55), **x16link.bin** and
+table is in bank 58, the RTF file buffer in bank 56, the renderer's buffers in bank 55), **x16wppi.bin** and
+**x16wppl.bin** (pictures, RAM bank 54 and bank 56 from $A200, and the tool tips; picture data in banks
+28-53), **x16link.bin** and
 **x16docs.bin** (X16Link libraries, banks 60/61, sources vendored in `lib/x16link/`, see
 `lib/x16link/VENDORED.md`). `make sd SD=<dir>` also copies them as X16WP.PRG, X16WPCL.BIN,
-X16WPSA.BIN, X16WPTB.BIN, X16LINK.BIN, X16DOCS.BIN. Run: `make run` (needs a mouse, 512 KB RAM). Without the .BIN files on the
+X16WPSA.BIN, X16WPTB.BIN, X16WPPI.BIN, X16WPPL.BIN, X16LINK.BIN, X16DOCS.BIN. Run: `make run` (needs a mouse, 512 KB RAM). Without the .BIN files on the
 SD card the program still works as a plain SD-card word processor. (`x16wp.prg`/`.asm` in the repo
 root are the original pre-cloud build, kept for reference.)
 
@@ -72,6 +74,36 @@ and a normal line always follows it. Columns are equal: 63 / columns screen cell
 * The code is the bank library **X16WPTB.BIN** (RAM bank 57, `x16wptb.p8`; `tblx.p8` is its main-RAM
   side). Without it on the SD card the Table button says so and tables in RTF files open as text.
 
+## Pictures
+
+The **Picture** button (toolbar 1, after Table) inserts a **BMX** picture (the Commander X16 bitmap
+format: version 1, uncompressed, 1/2/4/8 bits per pixel, up to 640 x 1024): **1** from the SD card
+(type its file name) or **2** from ownCloud (the `Documents/` picker, showing only `.bmx` files; the
+file is downloaded as it is). On an empty line the picture goes there, otherwise after the paragraph
+(or after the table / picture the cursor is in), and there is always a line after it to go on writing.
+
+* On screen it is centred and drawn in the 16 Sunset colours, scaled like this: f = min(1, 496 / w,
+  640 / h); w*f pixels wide, h*f/2 rows high (the screen's pixels are twice as tall as wide). A
+  320 x 240 picture is 320 x 120, 15 lines. A picture is never split across pages.
+* It is a run of lines with no text: the cursor can sit on it; **Backspace / Delete** on it delete
+  the picture; **Enter**, typing or **Paste** on it go to a new line after it; Backspace at the start
+  of the next line moves onto it (text is never merged into a picture). A selection that touches a
+  picture deletes the whole picture. Align / lists / indent / page break leave pictures alone.
+* Up to 15 pictures, as much as fits in 26 x 8 KB of RAM (two 320 x 240 x 8 bpp pictures, many
+  small ones); a deleted picture's memory is reused.
+* **RTF**: the BMX file is kept whole, as hex, in a `{\*\xwpbmx ...}` group between paragraphs:
+  X16 Write gets it back exactly; other programs skip it. Through ownCloud the hub makes a real
+  picture of it: in `.docx` (PNG, the same size as on the X16) and in `.rtf` (an extra PNG paragraph
+  Word shows, removed again when the X16 opens the file). Pictures in Word documents (PNG / JPEG /
+  GIF / BMP) arrive as BMX pictures (at most 320 x 240, 256 colours, about 160 KB per document).
+* The code is two bank libraries: **X16WPPI.BIN** (RAM bank 54, `x16wppi.p8`: the picture table,
+  drawing, keys / selections / paste, RTF export) and **X16WPPL.BIN** (RAM bank 56 at $A200,
+  `x16wppl.p8`: the Picture button, reading BMX files, the palette map, RTF import, and the toolbar's
+  tool tips); `pix.p8` is the main-RAM side. Without them there are no pictures and no tool tips.
+* `selftest/run_pictest.sh` tests pictures headless with the real libraries (test BMX files from
+  `selftest/mkbmx.py`): insert, the key / selection / paste guards, paragraph operations, full memory,
+  page breaks, and RTF save -> load -> save identical with the BMX files byte for byte.
+
 ## Save As: folders
 
 **Save As** (SD card and ownCloud) shows a folder browser: the current folder's path, `..`, its
@@ -99,7 +131,7 @@ Open and Save As each ask first: **1** = SD card (as before), **2** = ownCloud.
   **TXT** files are converted to RTF by the hub (UTF-8 → ISO-8859-15, characters with no
   equivalent become `?`, smart quotes/dashes become ASCII). **DOCX** (Word) files are converted to
   RTF by the hub too (bold/italic/underline, fonts, colours, alignment, indents, lists, page breaks,
-  tables up to 8 columns; images are dropped). Other types (spreadsheets are for X16 Sheets), and files
+  tables up to 8 columns; pictures become BMX pictures, see Pictures). Other types (spreadsheets are for X16 Sheets), and files
   over 1 MiB, are greyed out. The download goes to a temp file on the SD card and is checked with CRC-32
   before it replaces the document. A dropped link resumes where it stopped.
 * **Save** of a document opened from ownCloud writes it back there, but only if nobody

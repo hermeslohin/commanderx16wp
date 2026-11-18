@@ -28,6 +28,7 @@ main {
         cloud.menu_entry,   ; $A00C  r0L = 0 Open menu, 1 Save As menu -> A 0 SD, 1 ownCloud, 255 cancel
         cloud.is_cloud,     ; $A00F  -> A
         cloud.forget,       ; $A012
+        cloud.get_bmx,      ; $A015  pick a .bmx in Documents/ and download it (raw) to the temp file -> A true
     )
 
     sub start() {
@@ -103,6 +104,8 @@ cloud {
     sub menu_entry() -> ubyte {
         if cx16.r0L == 0
             return menu2(3, iso:"1 Open from SD card...", iso:"2 Open from ownCloud...")
+        if cx16.r0L == 2
+            return menu2(30, iso:"1 Picture from SD card...", iso:"2 Picture from ownCloud...")
         return menu2(9, iso:"1 Save As on SD card...", iso:"2 Save As to ownCloud...")
     }
 
@@ -254,14 +257,23 @@ cloud {
     }
 
 
-    ; RTF (1), TXT (2) and DOCX (3) open as RTF (conv 1); spreadsheets (4, 5) belong to X16 Sheets
+    ; RTF (1), TXT (2) and DOCX (3) open as RTF (conv 1); spreadsheets (4, 5) belong to X16 Sheets;
+    ; when picking a picture (bmxmode) only BMX (7) can be chosen
+    bool bmxmode
     sub openable() -> bool {
-        return @(row + 1) & 1 == 0 and @(row) >= 1 and @(row) <= 3
+        if @(row + 1) & 1 != 0
+            return false
+        if bmxmode
+            return @(row) == 7
+        return @(row) >= 1 and @(row) <= 3
     }
 
     sub choose() -> bool {
         if not openable() {
-            busy(iso:"That file type can't be opened (RTF/TXT/DOCX only)")
+            if bmxmode
+                busy(iso:"Choose a BMX picture")
+            else
+                busy(iso:"That file type can't be opened (RTF/TXT/DOCX only)")
             return false
         }
         if lkapi.list_name(sel, pickname, 64) != 0
@@ -279,13 +291,19 @@ cloud {
         sel = 0
         wp.draw_box(PX, PY, PW, PROWS + 6)
         wp.vid_fill(PX, PY, PW, 0, C_PURPLE)
-        wp.vid_text(PX + 2, PY, iso:"Open from ownCloud - Documents", 1, C_BLACK, C_PURPLE)
+        if bmxmode
+            wp.vid_text(PX + 2, PY, iso:"Insert picture from ownCloud - Documents", 1, C_BLACK, C_PURPLE)
+        else
+            wp.vid_text(PX + 2, PY, iso:"Open from ownCloud - Documents", 1, C_BLACK, C_PURPLE)
         wp.vid_fill(PX + 1, PY + 2, PW - 2, 0, C_YELLOW)
         wp.put(PX + 2, PY + 2, iso:"Name                                      Size  Modified        Type", C_BLACK, C_YELLOW)
         wp.put(PX + 17, PY + PROWS + 4, iso:"Enter=open  Esc=cancel", C_DGRAY, C_LGRAY)
         button(PX + PW - 22, PY + PROWS + 4, iso:"[ Open ]")
         button(PX + PW - 12, PY + PROWS + 4, iso:"[Cancel]")
-        busy(iso:"Choose a document (ownCloud Documents/)")
+        if bmxmode
+            busy(iso:"Choose a BMX picture (ownCloud Documents/)")
+        else
+            busy(iso:"Choose a document (ownCloud Documents/)")
         if total == 0
             wp.put(PX + 2, LROW, iso:"(Documents is empty)", C_DGRAY, C_WHITE)
         draw_list()
@@ -370,6 +388,33 @@ cloud {
             lkapi.forget()                  ; key out of RAM until the next transfer
         }
         wp.redraw_everything()
+    }
+
+    ; the Picture button, ownCloud: pick a .bmx and download it as it is (conv 3) to the temp file;
+    ; X16WPPI.BIN reads it from there (and deletes it)
+    sub get_bmx() -> bool {
+        bool ok = false
+        bmxmode = true
+        if online() {
+            busy(iso:"Reading the Documents list...")
+            if lkapi.list_begin() != 0 {
+                fail(iso:"List failed")
+            } else if pick() {
+                wp.redraw_everything()
+                busy(iso:"Downloading the picture...")
+                if lkapi.download(pickname, TMPN, 3) != 0
+                    fail(iso:"Download failed")
+                else
+                    ok = true
+            } else {
+                wp.set_status(iso:"Cancelled")
+            }
+            lkapi.hangup()
+            lkapi.forget()
+        }
+        bmxmode = false
+        wp.redraw_everything()
+        return ok
     }
 
     sub lkx_copy(uword src, uword dst) {

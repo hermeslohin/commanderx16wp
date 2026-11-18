@@ -4,9 +4,11 @@
 #   build/x16wpcl.bin   ownCloud UI bank library (needs wpsyms.p8 generated from the main build)
 #   build/x16wpsa.bin   Save As folder browser bank library (bank 59, its own wpsyms.p8 in build/sa)
 #   build/x16wptb.bin   tables bank library (bank 57, its own wpsyms.p8 in build/tb)
+#   build/x16wppi.bin   pictures bank library (bank 54, its own wpsyms.p8 in build/pi)
+#   build/x16wppl.bin   picture loading + tool tips bank library (bank 56 at $A200, build/pl)
 #   build/x16link.bin, build/x16docs.bin   X16Link libraries (sources vendored in lib/x16link)
-# and (with an SD dir argument) copies them there as X16WP.PRG, X16WPCL.BIN, X16WPSA.BIN, X16LINK.BIN,
-# X16DOCS.BIN.
+# and (with an SD dir argument) copies them there as X16WP.PRG, X16WPCL.BIN, X16WPSA.BIN, X16WPTB.BIN,
+# X16WPPI.BIN, X16WPPL.BIN, X16LINK.BIN, X16DOCS.BIN.
 # Env: PROG8C = Prog8 12.3.x compiler command (default: prog8c on PATH; e.g. "java -jar prog8c.jar"),
 #      X16LINK_LIB = library sources (default: the vendored lib/x16link), BUILD = output dir.
 set -eu
@@ -27,10 +29,16 @@ run "$B/x16wpsa.log" $P8 -srcdirs "$HERE" -srcdirs "$B/sa" -out "$B" "$HERE/x16w
 mkdir -p "$B/tb"
 python3 "$HERE/tools/gen_wpsyms.py" "$B" "$B/tb/wpsyms.p8" x16wp 57
 run "$B/x16wptb.log" $P8 -srcdirs "$HERE" -srcdirs "$B/tb" -out "$B" "$HERE/x16wptb.p8"
+mkdir -p "$B/pi"
+python3 "$HERE/tools/gen_wpsyms.py" "$B" "$B/pi/wpsyms.p8" x16wp 54
+run "$B/x16wppi.log" $P8 -srcdirs "$HERE" -srcdirs "$B/pi" -out "$B" "$HERE/x16wppi.p8"
+mkdir -p "$B/pl"
+python3 "$HERE/tools/gen_wpsyms.py" "$B" "$B/pl/wpsyms.p8" x16wp 56
+run "$B/x16wppl.log" $P8 -srcdirs "$HERE" -srcdirs "$B/pl" -out "$B" "$HERE/x16wppl.p8"
 if [ $# -ge 1 ]; then
   SD="$1"; mkdir -p "$SD"
   cp "$B/x16wp.prg" "$SD/X16WP.PRG"; cp "$B/x16wpcl.bin" "$SD/X16WPCL.BIN"; cp "$B/x16wpsa.bin" "$SD/X16WPSA.BIN"
-  cp "$B/x16wptb.bin" "$SD/X16WPTB.BIN"
+  cp "$B/x16wptb.bin" "$SD/X16WPTB.BIN"; cp "$B/x16wppi.bin" "$SD/X16WPPI.BIN"; cp "$B/x16wppl.bin" "$SD/X16WPPL.BIN"
   cp "$B/x16link.bin" "$SD/X16LINK.BIN"; cp "$B/x16docs.bin" "$SD/X16DOCS.BIN"
   echo "copied to $SD"
 fi
