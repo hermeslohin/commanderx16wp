@@ -181,3 +181,13 @@ saving into them, Replace, Cancel going back, saving back to the same ownCloud f
 * `selftest/selftest.p8` is a scripted headless test (builds a document, exports, re-imports).
 * `selftest/run_tabletest.sh` tests tables headless with the real X16WPTB.BIN: insert, typing, Tab /
   Enter / Backspace, full cells, guards, selections, Delete table, RTF save -> load -> save identical.
+
+## License
+
+Copyright (C) 2026 hermeslohin
+
+X16 Write is free software: you can redistribute it and/or modify it under the terms of the GNU General
+Public License as published by the Free Software Foundation, either version 3 of the License, or (at
+your option) any later version. It is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+See [LICENSE](LICENSE) for the full text of the GNU General Public License v3.
