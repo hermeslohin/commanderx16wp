@@ -1,6 +1,7 @@
 ; x16wpcl.p8 - ownCloud UI of X16 Write as a bank library: X16WPCL.BIN, RAM bank 62 at $A000.
 ; Open: dial the hub, list Documents/ in a scrollable picker (mouse + keys), download the chosen
-; file (.rtf as is, .txt converted to RTF by the hub) and load it.
+; file (.rtf as is, .txt and .docx converted to RTF by the hub) and load it.
+; Save As to a .docx name: the hub converts the RTF to a Word document (and back on Open).
 ; Save / Save As: export RTF to a temp file and upload it (create-only, or overwrite exactly the
 ; version we opened); a conflict asks Overwrite / New name / Cancel.
 ; It calls X16 Write's main-RAM routines through wpsyms.p8 (generated from the WP build by
@@ -156,7 +157,7 @@ cloud {
             wp.vid_text(PX + 2, y, iso:"(list error)", 0, C_RED, bg)
             return
         }
-        if @(row + 1) & 1 != 0
+        if not openable()
             fg = C_GRAY             ; unsupported type: shown, not openable
         if i == sel {
             bg = C_BLUE
@@ -209,9 +210,14 @@ cloud {
     }
 
 
+    ; RTF (1), TXT (2) and DOCX (3) open as RTF (conv 1); spreadsheets (4, 5) belong to X16 Sheets
+    sub openable() -> bool {
+        return @(row + 1) & 1 == 0 and @(row) >= 1 and @(row) <= 3
+    }
+
     sub choose() -> bool {
-        if @(row + 1) & 1 != 0 {
-            busy(iso:"That file type can't be opened (RTF/TXT only)")
+        if not openable() {
+            busy(iso:"That file type can't be opened (RTF/TXT/DOCX only)")
             return false
         }
         if lkapi.list_name(sel, pickname, 64) != 0
@@ -371,7 +377,7 @@ cloud {
     }
 
     sub ask_name() -> bool {
-        bool ok = wp.dialog_input(iso:"Save As to ownCloud (Documents/)", wp.nbuf, 30)
+        bool ok = wp.dialog_input(iso:"Save As to ownCloud: .rtf .txt or .docx", wp.nbuf, 30)
         wp.redraw_everything()
         if ok
             wp.ensure_ext()

@@ -33,13 +33,17 @@ Open and Save As each ask first: **1** = SD card (as before), **2** = ownCloud.
   sorted by name) with size, date and type. Use the arrow keys/PgUp/PgDn/mouse wheel to move,
   then Enter or double-click to open, or Esc to cancel. **RTF** files open as they are.
   **TXT** files are converted to RTF by the hub (UTF-8 → ISO-8859-15, characters with no
-  equivalent become `?`, smart quotes/dashes become ASCII). Other types, and files over 1 MiB, are
-  greyed out. The download goes to a temp file on the SD card and is checked with CRC-32
+  equivalent become `?`, smart quotes/dashes become ASCII). **DOCX** (Word) files are converted to
+  RTF by the hub too (bold/italic/underline, fonts, colours, alignment, indents, lists, page breaks;
+  images and tables are approximated). Other types (spreadsheets are for X16 Sheets), and files
+  over 1 MiB, are greyed out. The download goes to a temp file on the SD card and is checked with CRC-32
   before it replaces the document. A dropped link resumes where it stopped.
 * **Save** of a document opened from ownCloud writes it back there, but only if nobody
   changed it in ownCloud meanwhile (the hub checks the etag).
 * **Save As to ownCloud** asks for a name in `Documents/` (`.rtf` keeps the full format,
-  `.txt` stores plain text as UTF-8). If the file already exists, or was changed since you
+  `.txt` stores plain text as UTF-8, **`.docx` stores a Word document**: the hub converts the RTF,
+  joining the screen lines back into paragraphs and turning the list markers into real Word lists).
+  Save of a document opened from a `.docx` writes a `.docx` again. If the file already exists, or was changed since you
   opened it, a **Save conflict** dialog offers **Overwrite** (replaces exactly the version
   the hub just showed you), **New name** (asks again) or **Cancel**. Nothing is ever
   overwritten silently.
