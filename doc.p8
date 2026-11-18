@@ -9,7 +9,7 @@ doc {
     const ubyte PLINES = 54
     const uword MAXLINES = 864
     const ubyte MAXIND = 6
-    const uword SBMAX = 1024
+    const uword SBMAX = 640
     const ubyte CLIPBANK = 63
     const uword CLIPMAX = 2700
 
@@ -24,18 +24,19 @@ doc {
     const ubyte O_LIST = 244
     const ubyte F_SOFT = 1
     const ubyte F_HARD = 2
+    const ubyte F_TALL = 4          ; the line holds large (2x2 cell) characters: it is 2 screen rows high
+    const ubyte SZ_LARGE = $40      ; style bit: character is large (24 pt, 2 cells wide)
 
     uword order = memory("order", 1728, 0)
     uword slotmap = memory("slotmap", 112, 0)
     uword LB = memory("lb", 256, 0)
-    uword LB2 = memory("lb2", 256, 0)
     uword LBV = memory("lbv", 256, 0)
-    uword sbch = memory("sbch", 1024, 0)
-    uword sbsty = memory("sbsty", 1024, 0)
-    uword sbcol = memory("sbcol", 1024, 0)
-    ubyte[200] stg_ch
-    ubyte[200] stg_sty
-    ubyte[200] stg_col
+    uword sbch = memory("sbch", 640, 0)
+    uword sbsty = memory("sbsty", 640, 0)
+    uword sbcol = memory("sbcol", 640, 0)
+    ubyte[48] stg_ch
+    ubyte[48] stg_sty
+    ubyte[48] stg_col
 
     uword nlines
     uword curline
@@ -62,6 +63,10 @@ doc {
     ubyte cg_ch
     ubyte cg_sty
     ubyte cg_col
+
+    ; row map of one page (a large-size line takes 2 rows): which line / sub-row is on each page row
+    ubyte[54] pc_row                ; (line - first line of the page) * 2 + sub-row, 255 = empty
+    ubyte pc_page = 255
 
     ; ---------------- slots ----------------
     sub slot_ptr(uword slot) -> uword {
@@ -129,9 +134,9 @@ doc {
         }
         pokew(order + idx * 2, s)
         nlines++
-        sys.memset(LB2, 256, 0)
+        sys.memset(LBV, 256, 0)
         uword p = slot_ptr(s)
-        sys.memcopy(LB2, p, 248)
+        sys.memcopy(LBV, p, 248)
         return true
     }
 
@@ -177,6 +182,19 @@ doc {
         return l
     }
 
+    ; screen cells taken by the first n characters of a line buffer (large characters take 2)
+    sub cells_of(uword b, ubyte n) -> ubyte {
+        ubyte w = n
+        ubyte i
+        if n == 0
+            return 0
+        for i in 0 to n - 1 {
+            if (@(b + O_STY + i) & SZ_LARGE) != 0
+                w++
+        }
+        return w
+    }
+
     sub mark_range(uword l1, uword l2) {
         if rd_mode == 0 {
             rd_mode = 1
@@ -213,10 +231,16 @@ doc {
         uword l
         ubyte rows = 0
         ubyte p = 0
+        ubyte h
+        ubyte f
         pfirst[0] = 0
         for l in 0 to nlines - 1 {
+            f = meta(l, O_FLG)
+            h = 1
+            if (f & F_TALL) != 0
+                h = 2
             if l > 0 {
-                if (meta(l, O_FLG) & F_HARD) != 0 or rows >= PLINES {
+                if (f & F_HARD) != 0 or rows + h > PLINES {
                     if p < 63 {
                         p++
                         pfirst[p] = l
@@ -224,10 +248,11 @@ doc {
                     }
                 }
             }
-            rows++
+            rows += h
         }
         npages = p + 1
         need_repag = false
+        pc_page = 255
     }
 
     sub page_of(uword l) -> ubyte {
@@ -237,12 +262,44 @@ doc {
         return p
     }
 
-    sub vrow_of(uword l) -> uword {
-        ubyte p = page_of(l)
-        return (p as uword) * 55 + 1 + (l - pfirst[p])
+    sub build_pagemap(ubyte p) {
+        if pc_page == p
+            return
+        uword endl = nlines
+        if p + 1 < npages and pfirst[p + 1] < endl
+            endl = pfirst[p + 1]
+        ubyte r = 0
+        ubyte n = 0
+        uword l = pfirst[p]
+        while l < endl and r < PLINES {
+            pc_row[r] = n << 1
+            r++
+            if r < PLINES and (meta(l, O_FLG) & F_TALL) != 0 {
+                pc_row[r] = (n << 1) | 1
+                r++
+            }
+            n++
+            l++
+        }
+        while r < PLINES {
+            pc_row[r] = 255
+            r++
+        }
+        pc_page = p
     }
 
-    ; returns 0=line (cx16.r0=line), 1=blank paper, 2=page top separator (r0=page), 3=beyond
+    ; first page row (as a virtual screen row) of line l
+    sub vrow_of(uword l) -> uword {
+        ubyte p = page_of(l)
+        build_pagemap(p)
+        ubyte n = lsb(l - pfirst[p]) << 1
+        ubyte r = 0
+        while r < PLINES - 1 and pc_row[r] != n
+            r++
+        return (p as uword) * 55 + 1 + r
+    }
+
+    ; returns 0=line (cx16.r0=line, cx16.r1L=sub-row 0/1), 1=blank paper, 2=page top separator (r0=page), 3=beyond
     sub vrow_info(uword vr) -> ubyte {
         uword p = vr / 55
         ubyte rip = lsb(vr % 55)
@@ -253,13 +310,12 @@ doc {
             cx16.r0 = p
             return 2
         }
-        uword l = pfirst[pp] + rip - 1
-        uword endl = nlines
-        if p + 1 < npages
-            endl = pfirst[pp + 1]
-        if l >= endl
+        build_pagemap(pp)
+        ubyte e = pc_row[rip - 1]
+        if e == 255
             return 1
-        cx16.r0 = l
+        cx16.r0 = pfirst[pp] + (e >> 1)
+        cx16.r1L = e & 1
         return 0
     }
 
@@ -324,14 +380,36 @@ doc {
         ubyte w = width_of(pa_ind, pa_list)
         ubyte i
         bool found
+        ubyte fit
+        ubyte wsum
+        ubyte lim
+        ubyte step
+        ubyte tallb
+        ubyte oldtall
+        bool heightchg = false
         do {
             remaining = endp - pos
-            if remaining <= w {
+            ; fit = how many characters fit in w cells (large characters are 2 cells wide)
+            lim = 80
+            if remaining < 80
+                lim = lsb(remaining)
+            fit = 0
+            wsum = 0
+            while fit < lim {
+                step = 1
+                if (@(sbsty + pos + fit) & SZ_LARGE) != 0
+                    step = 2
+                if wsum + step > w
+                    break
+                wsum += step
+                fit++
+            }
+            if remaining <= fit {
                 take = lsb(remaining)
             } else {
-                take = w
+                take = fit
                 found = false
-                i = w
+                i = fit
                 while true {
                     if @(sbch + pos + i) == 32 {
                         found = true
@@ -343,6 +421,8 @@ doc {
                 }
                 if found and i > 0
                     take = i + 1
+                if take == 0
+                    take = 1
             }
             sys.memset(LB, 256, 0)
             if take != 0 {
@@ -351,10 +431,24 @@ doc {
                 sys.memcopy(sbcol + pos, LB + O_COL, take)
             }
             LB[O_LEN] = take
+            tallb = 0
+            if take != 0 {
+                for i in 0 to take - 1 {
+                    if (@(sbsty + pos + i) & SZ_LARGE) != 0 {
+                        tallb = F_TALL
+                        break
+                    }
+                }
+            }
+            oldtall = 0
+            if cur <= avail
+                oldtall = meta(cur, O_FLG) & F_TALL
+            if oldtall != tallb
+                heightchg = true
             if cur == first
-                LB[O_FLG] = pa_flags
+                LB[O_FLG] = pa_flags | tallb
             else
-                LB[O_FLG] = F_SOFT
+                LB[O_FLG] = F_SOFT | tallb
             LB[O_AL] = pa_al
             LB[O_IND] = pa_ind
             LB[O_LIST] = pa_list
@@ -371,7 +465,7 @@ doc {
             delete_line(cur)
             avail--
         }
-        if cur - 1 != oldlast {
+        if cur - 1 != oldlast or heightchg {
             need_repag = true
             mark_from(first)
         } else {
@@ -428,7 +522,7 @@ doc {
             c--
         if c >= ln
             c = ln - 1
-        tsty = @(p + O_STY + c) & $37
+        tsty = @(p + O_STY + c) & $77
         tfg = @(p + O_COL + c) & 15
         tbg = @(p + O_COL + c) >> 4
     }
@@ -503,7 +597,10 @@ doc {
         ld(curline, LB)
         ubyte ln = LB[O_LEN]
         ubyte w = width_of(LB[O_IND], LB[O_LIST])
-        if ln < w and curcol <= ln {
+        ubyte cwn = 1
+        if (tsty & SZ_LARGE) != 0
+            cwn = 2
+        if curcol <= ln and cells_of(LB, ln) + cwn <= w {
             ubyte i = ln
             while i > curcol {
                 LB[O_CH + i] = LB[O_CH + i - 1]
@@ -515,6 +612,11 @@ doc {
             LB[O_STY + curcol] = tsty
             LB[O_COL + curcol] = (tbg << 4) | tfg
             LB[O_LEN] = ln + 1
+            if cwn == 2 and (LB[O_FLG] & F_TALL) == 0 {
+                LB[O_FLG] |= F_TALL
+                need_repag = true
+                mark_from(curline)
+            }
             st(curline, LB)
             curcol++
             mark_range(curline, curline)
@@ -673,16 +775,18 @@ doc {
     }
 
     ; ---------------- character attribute changes ----------------
-    ; kind: 0 toggle style bit(s), 1 font, 2 text colour, 3 highlight colour
+    ; kind: 0 toggle style bit(s), 1 font, 2 text colour, 3 highlight colour, 4 size (0 = 12 pt, 1 = 24 pt)
     sub apply_attr(ubyte kind, ubyte val) {
         if kind == 0
             tsty ^= val
         else if kind == 1
-            tsty = (tsty & $0f) | (val << 4)
+            tsty = (tsty & $cf) | (val << 4)
         else if kind == 2
             tfg = val
-        else
+        else if kind == 3
             tbg = val
+        else
+            tsty = (tsty & ~SZ_LARGE) | (val << 6)
         if not sel_active
             return
         sel_norm()
@@ -733,9 +837,10 @@ doc {
                         else
                             LB[O_STY + i] |= val
                     }
-                    1 -> LB[O_STY + i] = (LB[O_STY + i] & $0f) | (val << 4)
+                    1 -> LB[O_STY + i] = (LB[O_STY + i] & $cf) | (val << 4)
                     2 -> LB[O_COL + i] = (LB[O_COL + i] & $f0) | val
-                    else -> LB[O_COL + i] = (LB[O_COL + i] & $0f) | (val << 4)
+                    3 -> LB[O_COL + i] = (LB[O_COL + i] & $0f) | (val << 4)
+                    else -> LB[O_STY + i] = (LB[O_STY + i] & ~SZ_LARGE) | (val << 6)
                 }
                 i++
             }
@@ -743,10 +848,12 @@ doc {
             mark_range(l, l)
         }
         modified = true
+        if kind == 4
+            para_op(3, 0)       ; the new widths change the wrapping
     }
 
     ; ---------------- paragraph attribute changes ----------------
-    ; kind 0 align (val 0/1/2), 1 indent delta (val 1 = in, 255 = out), 2 list (val 1 bullet, 2 number toggle)
+    ; kind 0 align (val 0/1/2), 1 indent delta (val 1 = in, 255 = out), 2 list (val 1 bullet, 2 number toggle), 3 re-wrap only
     sub para_op(ubyte kind, ubyte val) {
         uword l1 = curline
         uword l2 = curline
@@ -776,7 +883,7 @@ doc {
                 } else if pa_ind > 0 {
                     pa_ind--
                 }
-            } else {
+            } else if kind == 2 {
                 if pa_list == val
                     pa_list = 0
                 else {
@@ -873,7 +980,7 @@ doc {
         ubyte n
         while k < clip_n {
             n = 0
-            while k < clip_n and n < 200 {
+            while k < clip_n and n < 48 {
                 clip_get(k)
                 if cg_ch == 13
                     break
@@ -912,6 +1019,7 @@ doc {
         ubyte tl = LBV[O_LEN]
         while tl > 0 and LBV[O_CH + tl - 1] == 32
             tl--
+        tl = cells_of(LBV, tl)
         if al == 1 and tl < w
             return left + (w - tl) / 2
         if al == 2 and tl < w
@@ -920,17 +1028,28 @@ doc {
     }
 
     sub col_for_x(uword l, ubyte x) -> ubyte {
-        ; text column of line l for page-relative x
+        ; text column (character index) of line l for page-relative cell x; large characters are 2 cells wide
         ubyte o = origin_of(l)
-        ubyte c
-        if x < o
-            c = 0
-        else
-            c = x - o
         ubyte m = maxcol(l)
-        if c > m
-            c = m
-        return c
+        if x < o
+            return 0
+        ubyte cx = x - o
+        ubyte i = 0
+        ubyte cum = 0
+        ubyte wd
+        while i < m {
+            wd = 1
+            if (LBV[O_STY + i] & SZ_LARGE) != 0
+                wd = 2
+            if cx < cum + wd {
+                if wd == 2 and cx > cum
+                    i++
+                return i
+            }
+            cum += wd
+            i++
+        }
+        return m
     }
 
     sub goto_pos(uword l, ubyte c) {
@@ -971,7 +1090,8 @@ doc {
     }
 
     sub cur_x() -> ubyte {
-        return origin_of(curline) + curcol
+        ubyte o = origin_of(curline)
+        return o + cells_of(LBV, curcol)
     }
 
     ; list number of the paragraph starting at line l (for numbered lists)

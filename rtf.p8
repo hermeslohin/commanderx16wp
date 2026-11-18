@@ -108,7 +108,11 @@ rtf {
         bool soft = (flg & doc.F_SOFT) != 0
         while ln > 0 and b[doc.O_CH + ln - 1] == 32
             ln--
-        put_s(iso:"\\pard\\plain\\sb0\\sa0\\sl-240\\slmult0\\ri140\\li")
+        ; a line with large (24 pt) characters is two rows high: exact line spacing of 2 x 12 pt
+        if (flg & doc.F_TALL) != 0
+            put_s(iso:"\\pard\\plain\\sb0\\sa0\\sl-480\\slmult0\\ri140\\li")
+        else
+            put_s(iso:"\\pard\\plain\\sb0\\sa0\\sl-240\\slmult0\\ri140\\li")
         put_n((left as uword) * 144)
         if list != 0 and not soft
             put_s(iso:"\\fi-576")
@@ -161,7 +165,7 @@ rtf {
         if ln != 0 {
             for i in 0 to ln - 1 {
                 ch = b[doc.O_CH + i]
-                s = b[doc.O_STY + i] & $37
+                s = b[doc.O_STY + i] & $77
                 k = b[doc.O_COL + i]
                 if ch < 32
                     ch = 32
@@ -183,6 +187,12 @@ rtf {
                             put_s(iso:"\\ul")
                         else
                             put_s(iso:"\\ulnone")
+                    }
+                    if (s & $40) != (cs & $40) {
+                        if (s & $40) != 0
+                            put_s(iso:"\\fs48")
+                        else
+                            put_s(iso:"\\fs24")
                     }
                     if (s & $30) != (cs & $30) {
                         put_s(iso:"\\f")
@@ -256,20 +266,19 @@ rtf {
     ubyte pa_ind_i
     ubyte pa_list_i
     bool got_x16
-    uword ibufp = memory("ibufp", 256, 0)
 
     sub next_byte() -> ubyte {
         if ipos >= ilen {
             if ieof
                 return 0
-            ilen = diskio.f_read(ibufp, 250)
+            ilen = diskio.f_read(obuf, 250)
             ipos = 0
             if ilen == 0 {
                 ieof = true
                 return 0
             }
         }
-        ubyte c = @(ibufp + ipos)
+        ubyte c = @(obuf + ipos)
         ipos++
         return c
     }
@@ -346,6 +355,12 @@ rtf {
         if c < 32
             return
         start_text()
+        if pn >= doc.SBMAX - 1 {
+            ; paragraph too long for the edit buffer: continue it as a new paragraph instead of losing text
+            flush_para()
+            para_open = true
+            para_hard = 0
+        }
         if pn < doc.SBMAX - 1 {
             @(doc.sbch + pn) = c
             @(doc.sbsty + pn) = cur_sty
@@ -428,8 +443,8 @@ rtf {
         ; start with an empty document
         while doc.nlines > 1
             doc.delete_line(doc.nlines - 1)
-        sys.memset(doc.LB2, 256, 0)
-        doc.st(0, doc.LB2)
+        sys.memset(doc.LBV, 256, 0)
+        doc.st(0, doc.LBV)
         while true {
             if havepending {
                 c = pending
@@ -564,8 +579,13 @@ rtf {
             ubyte f = 0
             if wval < 3
                 f = lsb(wval)
-            cur_sty = (cur_sty & $0f) | (f << 4)
-        } else if is_word(iso:"cf") {
+            cur_sty = (cur_sty & $cf) | (f << 4)
+        } else if is_word(iso:"fs") {
+            ; 18 pt and up is imported as the large size, anything smaller as normal
+            if wval >= 36
+                cur_sty |= $40
+            else
+                cur_sty &= $bf        } else if is_word(iso:"cf") {
             if wval >= 1 and wval <= 16
                 cur_fg = lsb(wval) - 1
             else

@@ -20,9 +20,20 @@ Keyboard: typing, Enter, Backspace, Delete, arrows, Home, End, PgUp, PgDn, Tab (
 ## Pages and printing
 A page is 64 columns x 54 lines. RTF export writes every screen line as its own exact-spacing
 paragraph (12 pt monospace, 10 cpi, 6 lpi, 1" margins) with an explicit page break at every
-page start, so the printed page matches the screen. Bold/italic/underline, 3 monospace font
+page start, so the printed page matches the screen. Bold/italic/underline, 2 font sizes (12 pt and
+24 pt, see below), 3 monospace font
 families (Courier New / Lucida Console / Andale Mono), 16 text + highlight colours, alignment,
 indent (4 columns per level) and bullet/number lists are all written as real RTF.
+## Font sizes
+The Font menu (click the font box in the toolbar) lists the fonts and two sizes: **12 pt** (normal)
+and **24 pt** (large). With text selected the size applies to the selection, otherwise to what you
+type next; the toolbar shows the current size next to the font name. A large character is 2x2 cells
+(2 columns wide, 2 rows high), so a line containing large text is two rows high (normal text on the
+same line sits on the lower row) and wraps at the right margin by cell width. In the RTF it is
+`\fs48` (normal is `\fs24`) and the paragraph gets exact line spacing of 24 pt; on import, sizes of
+18 pt and up become large, smaller ones normal. A paragraph can hold up to 640 characters (longer
+ones from imported files are split into several paragraphs).
+
 The RTF can be re-opened by this program (private `\*\xwp` paragraph tags keep soft wrapping).
 
 ## ownCloud: Open and Save As

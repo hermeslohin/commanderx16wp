@@ -175,7 +175,7 @@ view {
             B_OUT -> return iso:"Decrease indent"
             B_IND -> return iso:"Increase indent"
             B_QUIT -> return iso:"Quit"
-            B_FONT -> return iso:"Change font"
+            B_FONT -> return iso:"Change font and size"
         }
         if id >= B_TXT0 and id < B_TXT0 + 16
             return iso:"Text color"
@@ -283,6 +283,10 @@ view {
         vid.text(40, 2, vid.font_name(f), (f << 4), 0, vid.C_WHITE)
         vid.text(60, 2, iso:"v", 0, 0, vid.C_WHITE)
         add_btn(39, 2, 22, B_FONT)
+        if (doc.tsty & doc.SZ_LARGE) != 0
+            vid.text(55, 2, iso:"24pt", 0, vid.C_BLUE, vid.C_WHITE)
+        else
+            vid.text(55, 2, iso:"12pt", 0, vid.C_BLUE, vid.C_WHITE)
         ; row 3: colours
         ubyte i
         put(1, 3, iso:"Text", 0, vid.C_LGRAY)
@@ -372,28 +376,84 @@ view {
         vid.r_col[PAGE_X + 65] = (vid.C_DGRAY << 4) | vid.C_DGRAY
     }
 
-    sub compose(uword l) {
+    ; builds the cells of line l for draw_vrow. half = 0/1: top/bottom screen row of a large-size line
+    ; (a line with large characters is 2 rows high; normal characters sit on the bottom row)
+    sub compose(uword l, ubyte half) {
         doc.ld(l, doc.LBV)
         uword b = doc.LBV
         ubyte ln = b[doc.O_LEN]
         ubyte ind = b[doc.O_IND]
         ubyte list = b[doc.O_LIST]
         ubyte flg = b[doc.O_FLG]
+        bool tall = (flg & doc.F_TALL) != 0
         paper_row()
-        ubyte base = PAGE_X + doc.origin_buf()
+        ubyte x = PAGE_X + doc.origin_buf()
+        ubyte xend = PAGE_X + 64
         ubyte i
         ubyte c
-        if ln != 0 {
-            for i in 0 to ln - 1 {
-                c = base + i
-                if c < PAGE_X + 64 {
-                    vid.r_ch[c] = b[doc.O_CH + i]
-                    vid.r_sty[c] = b[doc.O_STY + i]
-                    vid.r_col[c] = b[doc.O_COL + i]
-                }
+        ubyte s
+        ubyte w
+        ubyte k
+        ubyte ch
+        ubyte a = 0
+        ubyte e = 0
+        bool selhere = false
+        bool iscur = cursor_on and l == doc.curline
+        ubyte curx = 255
+        ubyte curw = 1
+        if doc.sel_active {
+            doc.sel_norm()
+            if l >= doc.sn_l1 and l <= doc.sn_l2 {
+                selhere = true
+                if l == doc.sn_l1
+                    a = doc.sn_c1
+                if l == doc.sn_l2
+                    e = doc.sn_c2
+                else
+                    e = ln + 1
             }
         }
-        if list != 0 and (flg & doc.F_SOFT) == 0 {
+        if ln != 0 {
+            for i in 0 to ln - 1 {
+                s = b[doc.O_STY + i]
+                ch = b[doc.O_CH + i]
+                k = b[doc.O_COL + i]
+                w = 1
+                if (s & doc.SZ_LARGE) != 0
+                    w = 2
+                if selhere and i >= a and i < e
+                    k = (vid.C_BLUE << 4) | vid.C_WHITE
+                if iscur and i == doc.curcol {
+                    curx = x
+                    curw = w
+                }
+                if x + w <= xend {
+                    if w == 2 {
+                        vid.r_ch[x + 1] = ch
+                        vid.r_sty[x + 1] = (s & $3f) | $80
+                        vid.r_col[x + 1] = k
+                        s = (s & $3f) | $40
+                    } else if tall and half == 0 {
+                        ch = 32
+                        s = 0
+                    } else
+                        s &= $3f
+                    vid.r_ch[x] = ch
+                    vid.r_sty[x] = s
+                    vid.r_col[x] = k
+                }
+                x += w
+            }
+        }
+        if selhere and a <= ln and e > ln and x < xend
+            vid.r_col[x] = (vid.C_BLUE << 4) | vid.C_WHITE
+        if iscur and doc.curcol >= ln {
+            curx = x
+            curw = 1
+            if (doc.tsty & doc.SZ_LARGE) != 0
+                curw = 2
+        }
+        if list != 0 and (flg & doc.F_SOFT) == 0 and (half == 1 or not tall) {
             c = PAGE_X + ind * 4
             if list == 1 {
                 vid.r_sty[c] = vid.S_RAW | $20
@@ -413,31 +473,12 @@ view {
                 vid.r_ch[c + 1] = iso:'.'
             }
         }
-        if doc.sel_active {
-            doc.sel_norm()
-            if l >= doc.sn_l1 and l <= doc.sn_l2 {
-                ubyte a = 0
-                ubyte e = ln
-                if l == doc.sn_l1
-                    a = doc.sn_c1
-                if l == doc.sn_l2
-                    e = doc.sn_c2
-                else
-                    e = ln + 1
-                i = a
-                while i < e {
-                    c = base + i
-                    if c < PAGE_X + 64
-                        vid.r_col[c] = (vid.C_BLUE << 4) | vid.C_WHITE
-                    i++
+        if curx != 255 {
+            for c in curx to curx + curw - 1 {
+                if c < PAGE_X + 66 {
+                    k = vid.r_col[c]
+                    vid.r_col[c] = (k << 4) | (k >> 4)
                 }
-            }
-        }
-        if cursor_on and l == doc.curline {
-            c = base + doc.curcol
-            if c < PAGE_X + 66 {
-                ubyte k = vid.r_col[c]
-                vid.r_col[c] = (k << 4) | (k >> 4)
             }
         }
     }
@@ -469,9 +510,12 @@ view {
     sub draw_vrow(ubyte sr) {
         ubyte kind = doc.vrow_info(vtop + sr)
         uword ln = cx16.r0
+        ubyte sb = cx16.r1L
+        vid.vhalf = 0
         paper_row()
         if kind == 0 {
-            compose(ln)
+            vid.vhalf = sb
+            compose(ln, sb)
         } else if kind == 1 {
             ; blank paper, already prepared
         } else if kind == 2 {
@@ -587,6 +631,9 @@ view {
 
     sub ensure_visible() {
         uword vr = doc.vrow_of(doc.curline)
+        uword vrb = vr
+        if (doc.meta(doc.curline, doc.O_FLG) & doc.F_TALL) != 0
+            vrb = vr + 1
         if vr < vtop + 1 {
             if vr > 0
                 set_vtop(vr - 1)
@@ -595,8 +642,8 @@ view {
             if vr > 1 {
                 ; keep the page title visible when we hit the first line of a page
             }
-        } else if vr >= vtop + VIEWROWS {
-            set_vtop(vr - VIEWROWS + 1)
+        } else if vrb >= vtop + VIEWROWS {
+            set_vtop(vrb - VIEWROWS + 1)
         }
     }
 
@@ -779,11 +826,15 @@ view {
         }
     }
 
-    ; popup font list under the font button. returns font number or 255
+    ; popup under the font button: the fonts, then the sizes. returns 0-2 (font), 3 (12 pt), 4 (24 pt) or 255
     sub font_menu() -> ubyte {
         ubyte f
         bool prev = true
-        draw_box(39, 3, 30, 5)
+        draw_box(39, 3, 30, 7)
+        vid.fill(40, 7, 28, 0, vid.C_WHITE)
+        vid.fill(40, 8, 28, 0, vid.C_WHITE)
+        vid.text(41, 7, iso:"12 pt normal", 0, 0, vid.C_WHITE)
+        vid.text(41, 8, iso:"24 pt large", 0, 0, vid.C_WHITE)
         for f in 0 to vid.NFONTS - 1 {
             vid.fill(40, 4 + f, 28, 0, vid.C_WHITE)
             vid.text(41, 4 + f, vid.font_name(f), f << 4, 0, vid.C_WHITE)
@@ -795,7 +846,7 @@ view {
             poll_mouse()
             if mouse_btn & 1 != 0 {
                 if not prev {
-                    if mouse_cx >= 40 and mouse_cx < 68 and mouse_cy >= 4 and mouse_cy < 4 + vid.NFONTS
+                    if mouse_cx >= 40 and mouse_cx < 68 and mouse_cy >= 4 and mouse_cy < 9
                         return mouse_cy - 4
                     return 255
                 }

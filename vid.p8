@@ -24,7 +24,9 @@ vid {
     const ubyte C_LBLUE = 14
     const ubyte C_LGRAY = 15
 
-    ; style byte: bit0 bold, bit1 italic, bit2 underline, bit3 raw glyph, bits 4-5 font
+    ; style byte: bit0 bold, bit1 italic, bit2 underline, bit3 raw glyph, bits 4-5 font,
+    ; bit6 large (stored: the character is 2x2 cells). While rendering, a large character is split
+    ; into cells: bit6 = left half, bit7 = right half; vhalf says which row (0 top, 1 bottom).
     const ubyte S_BOLD = 1
     const ubyte S_ITAL = 2
     const ubyte S_UNDER = 4
@@ -38,6 +40,7 @@ vid {
     ubyte[80] r_sty
     ubyte[80] r_col         ; (bg<<4) | fg
     ubyte[80] c_fl
+    ubyte vhalf             ; 0/1: top/bottom screen row of a large-size line (see render_run)
     uword c_gl = memory("c_gl", 640, 0)
     uword pairs = memory("pairs", 320, 0)
 
@@ -214,7 +217,7 @@ vid {
                     fetch_raw(f, r_ch[i], gp)
                 else
                     fetch_glyph(f, r_ch[i], gp)
-                c_fl[i] = s & 7
+                c_fl[i] = (s & 7) | ((s >> 1) & $60)
                 @(pp) = (bg << 4) | bg
                 @(pp+1) = (bg << 4) | fg
                 @(pp+2) = (fg << 4) | bg
@@ -225,6 +228,7 @@ vid {
         }
         ubyte j
         ubyte v
+        ubyte sr
         for r in 0 to 7 {
             sys.set_irqd()
             set_vaddr(row, r, col0)
@@ -246,8 +250,27 @@ vid {
                     fillv((j - i) << 2, v)
                     i = j
                 } else {
-                    gp = c_gl + ((i as uword) << 3) + r
                     pp = pairs + ((i as uword) << 2)
+                    if (fl & $60) != 0 {
+                        ; large character: one glyph pixel -> 2x2 pixels; this cell shows one quarter
+                        sr = (vhalf << 2) + (r >> 1)
+                        g = @(c_gl + ((i as uword) << 3) + sr)
+                        if (fl & S_ITAL) != 0 and sr < 4
+                            g >>= 1
+                        if (fl & S_BOLD) != 0
+                            g |= g >> 1
+                        if (fl & S_UNDER) != 0 and sr == 7
+                            g = $ff
+                        if (fl & $40) != 0
+                            g <<= 4
+                        cx16.VERA_DATA0 = @(pp + (g >> 7) * 3)
+                        cx16.VERA_DATA0 = @(pp + ((g >> 6) & 1) * 3)
+                        cx16.VERA_DATA0 = @(pp + ((g >> 5) & 1) * 3)
+                        cx16.VERA_DATA0 = @(pp + ((g >> 4) & 1) * 3)
+                        i++
+                        continue
+                    }
+                    gp = c_gl + ((i as uword) << 3) + r
                     g = @(gp)
                     if fl != 0 {
                         if (fl & S_ITAL) != 0 and r < 4

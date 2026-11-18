@@ -388,8 +388,10 @@ main {
                 ubyte f = view.font_menu()
                 doc.mark_all()
                 view.redraw_everything()
-                if f != 255
+                if f < 3
                     doc.apply_attr(1, f)
+                else if f != 255
+                    doc.apply_attr(4, f - 3)
             }
             view.B_QUIT -> {
                 if doc.modified {
