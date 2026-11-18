@@ -357,11 +357,40 @@ pl {
     }
 
     ; ---------------- tool tips ----------------
+    ; A tip borrows the status bar: the message under it (e.g. "Hub unreachable: ...") is kept and
+    ; comes back when the mouse leaves the toolbar (id 0). If something else wrote the status bar while
+    ; a tip was showing (a button's own result), that message stays and becomes the one to keep.
+    ubyte[51] keep
+    uword shown                 ; the tip on the status bar now, 0 = none
+
     sub tip_entry() {
         tip(cx16.r0L)
     }
 
+    ; the status bar still shows the tip (set_status pads it with spaces)
+    sub tip_showing() -> bool {
+        if shown == 0
+            return false
+        ubyte i = 0
+        while @(shown + i) != 0 {
+            if @(wp.status_msg + i) != @(shown + i)
+                return false
+            i++
+        }
+        return true
+    }
+
     sub tip(ubyte id) {
+        if not tip_showing() {
+            ubyte i
+            for i in 0 to 50
+                keep[i] = @(wp.status_msg + i)
+        }
+        shown = 0
+        if id == 0 {
+            status(&keep)
+            return
+        }
         uword s = iso:""
         when id {
             1 -> s = iso:"New document"
@@ -394,6 +423,11 @@ pl {
                     s = iso:"Highlight color"
             }
         }
+        if @(s) == 0 {
+            status(&keep)           ; no tip for this one: show the kept message
+            return
+        }
+        shown = s
         status(s)
     }
 }

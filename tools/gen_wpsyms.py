@@ -132,6 +132,7 @@ PI_VARS = [v for v in TB_VARS if v[0] in ("modified", "nbuf", "nlines", "curline
                                             "full_error", "rd_mode", "LB", "sbch", "first_flush", "para_open",
                                             "pn")] + [
     ("LBV", "doc", "LBV", "uword"),
+    ("status_msg", "view", "status_msg", "addr"),
     ("theme_hop", "theme", "hop", "ubyte?"),
 ]
 
