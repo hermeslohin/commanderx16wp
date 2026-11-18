@@ -373,13 +373,31 @@ view {
     }
 
     sub draw_status() {
+        ; Compose the whole row in vid's r_ buffers and render it in one pass: blanking the row first and
+        ; then drawing each piece on top made the status bar flash on every refresh.
         ; Quill (theme sprite) sits in columns 0-1
-        vid.fill(0, STATUS_ROW, 80, 0, vid.C_BLACK)
-        put(3, STATUS_ROW, status_msg, vid.C_WHITE, vid.C_BLACK)
-        put(56, STATUS_ROW, iso:"Ln", vid.C_YELLOW, vid.C_BLACK)
-        num(59, STATUS_ROW, (doc.curline - doc.pfirst[page_cur()]) + 1, vid.C_WHITE, vid.C_BLACK)
-        put(65, STATUS_ROW, iso:"Col", vid.C_YELLOW, vid.C_BLACK)
-        num(69, STATUS_ROW, doc.curcol + 1, vid.C_WHITE, vid.C_BLACK)
+        ubyte i
+        for i in 0 to 79 {
+            vid.r_ch[i] = 32
+            vid.r_sty[i] = 0
+            vid.r_col[i] = (vid.C_BLACK << 4) | vid.C_WHITE
+        }
+        st_put(3, status_msg, vid.C_WHITE)
+        st_put(56, iso:"Ln", vid.C_YELLOW)
+        st_put(59, conv.str_uw((doc.curline - doc.pfirst[page_cur()]) + 1), vid.C_WHITE)
+        st_put(65, iso:"Col", vid.C_YELLOW)
+        st_put(69, conv.str_uw(doc.curcol + 1), vid.C_WHITE)
+        vid.render_run(STATUS_ROW, 0, 80)
+    }
+
+    sub st_put(ubyte col, uword s, ubyte fg) {
+        ubyte n = 0
+        while @(s + n) != 0 and col < 80 {
+            vid.r_ch[col] = @(s + n)
+            vid.r_col[col] = (vid.C_BLACK << 4) | fg
+            col++
+            n++
+        }
     }
 
     ; ---------------- page view ----------------
