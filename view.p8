@@ -250,6 +250,7 @@ view {
 
     ; ---------------- toolbar ----------------
     sub draw_toolbar() {
+        vid.compose_begin()     ; drawn row by row in one pass each: no flash
         bt_n = 0
         ; title bar: Sunset stripes with black chips
         theme.stripes(0, 0, 80)
@@ -314,6 +315,7 @@ view {
             swatch(46 + i * 2, i, B_HIL0 + i, doc.tbg == i)
         }
         draw_ruler()
+        vid.compose_end()
     }
 
     sub swatch(ubyte col, ubyte color, ubyte id, bool cur) {
