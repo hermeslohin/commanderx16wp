@@ -205,88 +205,74 @@ vid {
     }
 
     ; ---- compose mode: build rows off screen, then draw each row in one pass ----
-    ; Between compose_begin() and compose_end(), render_run() only collects cells (per row, in s_*);
-    ; a row is drawn when drawing moves on to another row, or at compose_end(). Only the cells that
-    ; were drawn are written, so code that paints a background and then draws on top of it (title
-    ; bar stripes + chips, toolbar fill + icons) no longer shows the half-drawn state as a flash.
+    ; Between compose_begin() and compose_end(), render_run() only collects the cells of rows
+    ; 0..COMP_ROWS-1 (other rows are drawn at once); compose_end() draws the collected cells of each
+    ; row in one pass. So code that paints a background and then draws on top of it (title bar
+    ; stripes + chips, toolbar fill + icons) no longer shows the half-drawn state as a flash.
+    ; Buffers: RAM bank BUFBANK from $a400 (after render_run's), 512 bytes a row: ch, sty, col, set x 80.
+    ; Big characters (r_big) are not collected: only the page view (rows >= COMP_ROWS) uses them.
+    const ubyte COMP_ROWS = 5
     bool composing
-    ubyte comp_row = 255
-    ; the collected row, in RAM bank BUFBANK after render_run's buffers (80 bytes each)
-    const uword s_ch = $a400
-    const uword s_sty = $a450
-    const uword s_col = $a4a0
-    const uword s_big = $a4f0
-    const uword s_set = $a540
 
     sub compose_begin() {
         ubyte obank = cx16.getrambank()
         cx16.rambank(BUFBANK)
-        sys.memset(s_set, 80, 0)
+        sys.memset($a400, COMP_ROWS * 512, 0)
         cx16.rambank(obank)
-        comp_row = 255
         composing = true
     }
 
     sub compose_end() {
-        comp_flush()
         composing = false
-    }
-
-    sub comp_flush() {
-        if comp_row == 255
-            return
         ubyte obank = cx16.getrambank()
-        ubyte i = 0
+        ubyte row
+        ubyte i
         ubyte j
         ubyte k
-        while i < 80 {
-            cx16.rambank(BUFBANK)
-            if @(s_set + i) == 0 {
-                i++
-                continue
+        uword p
+        for row in 0 to COMP_ROWS - 1 {
+            p = mkword($a4 + row * 2, 0)
+            i = 0
+            while i < 80 {
+                cx16.rambank(BUFBANK)
+                j = i
+                k = 0
+                while j < 80 and @(p + 240 + j) != 0 {
+                    r_ch[k] = @(p + j)
+                    r_sty[k] = @(p + 80 + j)
+                    r_col[k] = @(p + 160 + j)
+                    j++
+                    k++
+                }
+                cx16.rambank(obank)
+                if k == 0
+                    i++
+                else {
+                    draw_run(row, i, k)
+                    i = j
+                }
             }
-            j = i
-            k = 0
-            while j < 80 and @(s_set + j) != 0 {
-                r_ch[k] = @(s_ch + j)
-                r_sty[k] = @(s_sty + j)
-                r_col[k] = @(s_col + j)
-                r_big[k] = @(s_big + j)
-                @(s_set + j) = 0
-                j++
-                k++
-            }
-            cx16.rambank(obank)
-            draw_run(comp_row, i, k)
-            i = j
         }
-        cx16.rambank(obank)
-        comp_row = 255
     }
 
     ; draws the first n cells of r_ch/r_sty/r_col at cell (col0,row) (collects them in compose mode)
     sub render_run(ubyte row, ubyte col0, ubyte n) {
-        if not composing {
+        if not composing or row >= COMP_ROWS {
             draw_run(row, col0, n)
             return
         }
-        if row != comp_row {
-            comp_flush()
-            comp_row = row
-        }
         ubyte obank = cx16.getrambank()
         cx16.rambank(BUFBANK)
+        uword p = mkword($a4 + row * 2, col0)
         ubyte i = 0
-        ubyte c = col0
-        while i < n and c < 80 {
-            @(s_ch + c) = r_ch[i]
-            @(s_sty + c) = r_sty[i]
-            @(s_col + c) = r_col[i]
-            @(s_big + c) = r_big[i]
-            @(s_set + c) = 1
-            r_big[i] = 0
+        while i < n and col0 < 80 {
+            @(p) = r_ch[i]
+            @(p + 80) = r_sty[i]
+            @(p + 160) = r_col[i]
+            @(p + 240) = 1
+            p++
             i++
-            c++
+            col0++
         }
         cx16.rambank(obank)
     }
