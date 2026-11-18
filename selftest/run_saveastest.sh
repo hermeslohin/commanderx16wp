@@ -67,6 +67,7 @@ q3 = oc / "Reports" / "q3.rtf"
 chk(q3.is_file() and q3.read_bytes().startswith(b"{\\rtf1"), "ownCloud: new folder Reports made, q3.rtf saved in it (key read from / while in /LETTERS)")
 chk(b"ABCD" in q3.read_bytes() if q3.is_file() else False, "ownCloud: Save As in place overwrote its own version")
 chk("Saved to ownCloud" in line("OC_SAVEAS_SAME") and "file=[q3.rtf]" in line("OC_SAVEAS_SAME"), "ownCloud: status and file name")
+chk("BMX 180x240 bpp 8" in line("OC_PICTURE"), "ownCloud picture picker: the hub turned aaa.jpg (640 x 480, EXIF rotated) into an upright 180 x 240 BMX")
 chk(not (sd / "LETTERS" / "X16WP.TMP").exists() and not (sd / "X16WP.TMP").exists(), "no temp file left")
 print("RESULT " + ("PASS" if bad == 0 else f"{bad} FAILED"))
 sys.exit(1 if bad else 0)

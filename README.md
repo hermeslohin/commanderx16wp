@@ -5,10 +5,10 @@ lands in `build/`: **x16wp.prg**, **x16wpcl.bin** (ownCloud UI, RAM bank 62), **
 folder browser, RAM bank 59, loaded by x16wpcl.bin), **x16wptb.bin** (tables, RAM bank 57; the line-order
 table is in bank 58, the RTF file buffer in bank 56, the renderer's buffers in bank 55), **x16wppi.bin** and
 **x16wppl.bin** (pictures, RAM bank 54 and bank 56 from $A200, and the tool tips; picture data in banks
-28-53), **x16link.bin** and
+28-53), **x16wphc.bin** (256-colour pictures, RAM bank 55 from $AE00), **x16link.bin** and
 **x16docs.bin** (X16Link libraries, banks 60/61, sources vendored in `lib/x16link/`, see
 `lib/x16link/VENDORED.md`). `make sd SD=<dir>` also copies them as X16WP.PRG, X16WPCL.BIN,
-X16WPSA.BIN, X16WPTB.BIN, X16WPPI.BIN, X16WPPL.BIN, X16LINK.BIN, X16DOCS.BIN. Run: `make run` (needs a mouse, 512 KB RAM). Without the .BIN files on the
+X16WPSA.BIN, X16WPTB.BIN, X16WPPI.BIN, X16WPPL.BIN, X16WPHC.BIN, X16LINK.BIN, X16DOCS.BIN. Run: `make run` (needs a mouse, 512 KB RAM). Without the .BIN files on the
 SD card the program still works as a plain SD-card word processor. (`x16wp.prg`/`.asm` in the repo
 root are the original pre-cloud build, kept for reference.)
 
@@ -78,13 +78,21 @@ and a normal line always follows it. Columns are equal: 63 / columns screen cell
 
 The **Picture** button (toolbar 1, after Table) inserts a **BMX** picture (the Commander X16 bitmap
 format: version 1, uncompressed, 1/2/4/8 bits per pixel, up to 640 x 1024): **1** from the SD card
-(type its file name) or **2** from ownCloud (the `Documents/` picker, showing only `.bmx` files; the
-file is downloaded as it is). On an empty line the picture goes there, otherwise after the paragraph
+(type its file name) or **2** from ownCloud (the `Documents/` picker: `.bmx` files are downloaded as
+they are; **PNG, JPEG, GIF and BMP** pictures, up to 16 MB, are converted to BMX by the hub on the
+way: scaled down to fit 320 x 240, 256 colours, turned upright by the photo's EXIF orientation. That
+needs a hub with BMX conversion, `conv 4`; older hubs show those files greyed out). On an empty line the picture goes there, otherwise after the paragraph
 (or after the table / picture the cursor is in), and there is always a line after it to go on writing.
 
-* On screen it is centred and drawn in the 16 Sunset colours, scaled like this: f = min(1, 496 / w,
-  640 / h); w*f pixels wide, h*f/2 rows high (the screen's pixels are twice as tall as wide). A
-  320 x 240 picture is 320 x 120, 15 lines. A picture is never split across pages.
+* On screen it is centred, scaled like this: f = min(1, 496 / w, 640 / h); w*f pixels wide, h*f/2
+  rows high (the screen's pixels are twice as tall as wide). A 320 x 240 picture is 320 x 120, 15
+  lines. A picture is never split across pages.
+* **256 colours**: with **X16WPHC.BIN** pictures are drawn on VERA layer 1 (8 bpp, 16 x 8 tiles) over
+  the 16-colour page, in a 6 x 7 x 5 colour cube plus 16 greys (palette entries 16..241; every BMX
+  colour goes to the nearest), so several pictures can be on screen at once. Video RAM has room for
+  310 tiles, about one 320 x 240 picture on screen at a time: a picture row that gets no tiles is drawn
+  in the 16 Sunset colours as before, and so is everything without X16WPHC.BIN. Dialogs and menus
+  hide layer 1 while they are open.
 * It is a run of lines with no text: the cursor can sit on it; **Backspace / Delete** on it delete
   the picture; **Enter**, typing or **Paste** on it go to a new line after it; Backspace at the start
   of the next line moves onto it (text is never merged into a picture). A selection that touches a
@@ -96,10 +104,12 @@ file is downloaded as it is). On an empty line the picture goes there, otherwise
   picture of it: in `.docx` (PNG, the same size as on the X16) and in `.rtf` (an extra PNG paragraph
   Word shows, removed again when the X16 opens the file). Pictures in Word documents (PNG / JPEG /
   GIF / BMP) arrive as BMX pictures (at most 320 x 240, 256 colours, about 160 KB per document).
-* The code is two bank libraries: **X16WPPI.BIN** (RAM bank 54, `x16wppi.p8`: the picture table,
-  drawing, keys / selections / paste, RTF export) and **X16WPPL.BIN** (RAM bank 56 at $A200,
+* The code is three bank libraries: **X16WPPI.BIN** (RAM bank 54, `x16wppi.p8`: the picture table,
+  drawing, keys / selections / paste, RTF export), **X16WPPL.BIN** (RAM bank 56 at $A200,
   `x16wppl.p8`: the Picture button, reading BMX files, the palette map, RTF import, and the toolbar's
-  tool tips); `pix.p8` is the main-RAM side. Without them there are no pictures and no tool tips.
+  tool tips; it also loads X16WPHC.BIN) and **X16WPHC.BIN** (RAM bank 55 at $AE00, after the
+  renderer's buffers, `x16wphc.p8`: 256-colour drawing on layer 1, its VRAM map is in the source);
+  `pix.p8` is the main-RAM side. Without the first two there are no pictures and no tool tips.
 * `selftest/run_bigtest.sh` runs long-document tests with 512 KB and with 2 MB: filling to 864 / 3456
   lines, lines in banks 64.., 16 / 64 pages, the full-document guards, slot reuse, RTF save -> load ->
   save of a full document, and 2 / 13 big pictures.

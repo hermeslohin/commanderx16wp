@@ -126,6 +126,7 @@ vid {
 
     sub gfx_off() {
         cx16.mouse_config(0, 0, 0)
+        cbm.CINT()                      ; also resets layer 1 (X16WPHC.BIN's pictures) for the text screen
         cx16.set_screen_mode(0)
         cbm.CHROUT($8f)
         cbm.CHROUT(147)

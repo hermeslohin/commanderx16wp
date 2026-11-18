@@ -258,26 +258,29 @@ cloud {
 
 
     ; RTF (1), TXT (2) and DOCX (3) open as RTF (conv 1); spreadsheets (4, 5) belong to X16 Sheets;
-    ; when picking a picture (bmxmode) only BMX (7) can be chosen
+    ; when picking a picture (bmxmode) only BMX (7) and PNG / JPEG / GIF / BMP (8, which the hub
+    ; converts to BMX with conv 4) can be chosen; picktype = the chosen file's type
     bool bmxmode
+    ubyte picktype
     sub openable() -> bool {
         if @(row + 1) & 1 != 0
             return false
         if bmxmode
-            return @(row) == 7
+            return @(row) == 7 or @(row) == 8
         return @(row) >= 1 and @(row) <= 3
     }
 
     sub choose() -> bool {
         if not openable() {
             if bmxmode
-                busy(iso:"Choose a BMX picture")
+                busy(iso:"Choose a picture (BMX, PNG, JPEG, GIF, BMP)")
             else
                 busy(iso:"That file type can't be opened (RTF/TXT/DOCX only)")
             return false
         }
         if lkapi.list_name(sel, pickname, 64) != 0
             return false
+        picktype = @(row)
         return true
     }
 
@@ -301,7 +304,7 @@ cloud {
         button(PX + PW - 22, PY + PROWS + 4, iso:"[ Open ]")
         button(PX + PW - 12, PY + PROWS + 4, iso:"[Cancel]")
         if bmxmode
-            busy(iso:"Choose a BMX picture (ownCloud Documents/)")
+            busy(iso:"Choose a BMX, PNG, JPEG, GIF or BMP picture")
         else
             busy(iso:"Choose a document (ownCloud Documents/)")
         if total == 0
@@ -390,8 +393,9 @@ cloud {
         wp.redraw_everything()
     }
 
-    ; the Picture button, ownCloud: pick a .bmx and download it as it is (conv 3) to the temp file;
-    ; X16WPPI.BIN reads it from there (and deletes it)
+    ; the Picture button, ownCloud: pick a .bmx and download it as it is (conv 3), or a PNG / JPEG / GIF /
+    ; BMP picture, which the hub converts to a BMX (conv 4, at most 320 x 240), to the temp file;
+    ; X16WPPL.BIN reads it from there (and deletes it). Hubs without conv 4 list pictures as type 0.
     sub get_bmx() -> bool {
         bool ok = false
         bmxmode = true
@@ -401,8 +405,13 @@ cloud {
                 fail(iso:"List failed")
             } else if pick() {
                 wp.redraw_everything()
-                busy(iso:"Downloading the picture...")
-                if lkapi.download(pickname, TMPN, 3) != 0
+                ubyte conv = 3
+                if picktype == 8 {
+                    conv = 4
+                    busy(iso:"Converting the picture on the hub...")
+                } else
+                    busy(iso:"Downloading the picture...")
+                if lkapi.download(pickname, TMPN, conv) != 0
                     fail(iso:"Download failed")
                 else
                     ok = true

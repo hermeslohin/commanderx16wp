@@ -60,7 +60,40 @@ pl {
     ubyte[16] pal_hi = [$2,$f,$f,$4,$9,$4,$3,$f,$f,$a,$f,$3,$6,$b,$8,$c]
 
     sub setup() -> bool {
-        return cx16.r0 == wp.CHECK
+        if cx16.r0 != wp.CHECK
+            return false
+        load_hc()
+        return true
+    }
+
+    ; X16WPHC.BIN (x16wphc.p8): 256-colour pictures on layer 1, RAM bank 55 at $AE00
+    extsub @bank 55 $AE00 = hc_init() clobbers(A, X, Y)
+    extsub @bank 55 $AE03 = hc_setup(uword check @R0) clobbers(X, Y) -> bool @A
+    extsub @bank 54 $A02A = a_hc() clobbers(A, X, Y)
+
+    sub load_hc() {
+        if not wp.f_open(iso:"X16WPHC.BIN")
+            return
+        uword sb = wp.sbch
+        uword a = $ae00
+        uword n
+        while true {
+            n = wp.f_read(sb, 512)
+            if n == 0
+                break
+            if n > $c000 - a {
+                wp.f_close()
+                return
+            }
+            wp.bxfer(55, a, sb, n, 1)
+            a += n
+        }
+        wp.f_close()
+        if a == $ae00
+            return
+        hc_init()
+        if hc_setup(wp.CHECK)
+            a_hc()
     }
 
     ; X16WPCL.BIN (bank 62, loaded by cloudx.menu): pick a .bmx on ownCloud, download it to the temp file

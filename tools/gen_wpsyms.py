@@ -131,6 +131,7 @@ PI_VARS = [v for v in TB_VARS if v[0] in ("modified", "nbuf", "nlines", "curline
                                             "sel_l", "sel_c", "sn_l1", "sn_c1", "sn_l2", "sn_c2", "need_repag",
                                             "full_error", "rd_mode", "LB", "sbch", "first_flush", "para_open",
                                             "pn")] + [
+    ("vtop", "view", "vtop", "uword"),
     ("LBV", "doc", "LBV", "uword"),
     ("status_msg", "view", "status_msg", "addr"),
     ("theme_hop", "theme", "hop", "ubyte?"),
@@ -142,7 +143,7 @@ def main(build: Path, out: Path, prog: str = "x16wp", bank: str = "62"):
     BANK = int(bank)
     if BANK == 57:
         SUBS, VARS = TB_SUBS, TB_VARS
-    elif BANK in (54, 56):
+    elif BANK in (54, 55, 56):
         SUBS, VARS = PI_SUBS, PI_VARS
     syms = {}
     for line in (build / f"{prog}.vice-mon-list").read_text().splitlines():

@@ -7,7 +7,8 @@
 ; A picture is a run of lines (one screen row each, no text): doc.O_PIC = picture id (1..15),
 ; doc.O_PROW = row of the picture on this line, and byte 0 of every picture line = the number of
 ; lines of the picture (repaginate keeps a picture on one page). The BMX data lives in RAM banks
-; 28..53 (see x16wppi.p8).
+; 28..53 (see x16wppi.p8). With X16WPHC.BIN (RAM bank 55 at $AE00, loaded by X16WPPL.BIN, source
+; x16wphc.p8) pictures are shown in 256 colours on VERA layer 1; without it in the 16 Sunset colours.
 
 %import syslib
 %import diskio
@@ -23,7 +24,7 @@ pix {
     extsub @bank BANK $A003 = pi_setup(uword check @R0) clobbers(X, Y) -> bool @A
     extsub @bank BANK $A006 = pi_key(ubyte k @R0) clobbers(X, Y) -> bool @A
     extsub @bank BANK $A009 = pi_delsel() clobbers(X, Y) -> bool @A
-    extsub @bank BANK $A00C = pi_draw(ubyte sr @R0) clobbers(A, X, Y)
+    extsub @bank BANK $A00C = pi_draw(ubyte sr @R0, ubyte kind @R1) clobbers(A, X, Y)
     extsub @bank BANK $A00F = pi_export() clobbers(A, X, Y)
     extsub @bank BANK $A012 = pi_paste() clobbers(A, X, Y)
     extsub @bank LBANK $A200 = pl_init() clobbers(A, X, Y)

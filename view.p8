@@ -580,8 +580,8 @@ view {
         }
         scroll_cell(sr)
         vid.render_run(ROW0 + sr, 0, 80)
-        if kind == 0 and doc.LBV[doc.O_PIC] != 0
-            pix.pi_draw(sr)                 ; compose() left the line in doc.LBV
+        if pix.ready
+            pix.pi_draw(sr, kind)           ; every row (256-colour pictures); compose() left the line in doc.LBV
     }
 
     sub redraw_all() {
@@ -762,6 +762,7 @@ view {
     }
 
     sub draw_box(ubyte x, ubyte y, ubyte w, ubyte h) {
+        cx16.VERA_DC_VIDEO &= %11011111     ; pictures' layer 1 off (X16WPHC.BIN turns it on again)
         ubyte r
         for r in y to y + h - 1
             vid.fill(x, r, w, 0, vid.C_LGRAY)

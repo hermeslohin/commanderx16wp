@@ -24,6 +24,9 @@ main {
                   $11, 13, 20,20,20,20,20,20,20, iso:'q',iso:'3', $ff, 13, 0]
     ; 5) ownCloud Save As, starts in Reports with q3.rtf: Enter (same file: overwrites its own version)
     ubyte[] k5 = [13, 0]
+    ; 6) ownCloud picture picker (the Picture button): aaa.jpg is the first file, Enter
+    ubyte[] k6 = [13, 0]
+    extsub @bank 62 $A015 = cl_get_bmx() clobbers(X, Y) -> bool @A
     uword script
     ubyte sp
     ubyte idle
@@ -133,6 +136,26 @@ main {
         play(&k5)
         cloudx.cl_save(1)
         status(iso:"OC_SAVEAS_SAME")
+        play(&k6)
+        bool got = cl_get_bmx()
+        log(iso:"OC_PICTURE ")
+        if got and diskio.f_open(iso:"X16WP.TMP") {
+            ubyte[32] hd
+            void diskio.f_read(&hd, 32)
+            diskio.f_close()
+            if hd[0] == iso:'B' and hd[1] == iso:'M' and hd[2] == iso:'X' {
+                log(iso:"BMX ")
+                log(conv.str_uw(peekw(&hd + 6)))
+                log(iso:"x")
+                log(conv.str_uw(peekw(&hd + 8)))
+                log(iso:" bpp ")
+                log(conv.str_ub(hd[4]))
+            } else
+                log(iso:"not a BMX")
+        } else
+            log(iso:"download failed")
+        diskio.delete(iso:"X16WP.TMP")
+        status(iso:"")
         log(iso:"SAVEAS done\n")
         repeat {}
     }

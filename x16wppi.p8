@@ -45,6 +45,7 @@ main {
         pi.e_shrink,    ; $A021  r0L id, r1L banks to keep
         pi.e_set,       ; $A024  r0L id: its sizes from doc.LB (see e_set)
         pi.e_lines,     ; $A027  r0L id, r1 line, r2L 1 = reuse the line at the end -> A false if full
+        pi.e_hc,        ; $A02A  X16WPHC.BIN (bank 55) is set up: draw pictures with it
     )
 
     sub start() {
@@ -86,6 +87,10 @@ pi {
 
     ubyte[256] map                      ; palette map of picture mapid
     ubyte mapid
+    ubyte gen                           ; changes when a picture id is freed or (re)set (X16WPHC.BIN)
+    bool hc                             ; X16WPHC.BIN draws pictures in 256 colours on layer 1
+
+    extsub @bank 55 $AE06 = hc_row() clobbers(X, Y) -> bool @A
     uword s_first                       ; span()
     uword s_last
 
@@ -182,6 +187,7 @@ pi {
         p_used[id] = false
         if mapid == id
             mapid = 0
+        gen++
     }
 
     ; a free picture id, or 0
@@ -243,6 +249,7 @@ pi {
         p_nb[id] = nb
         if mapid == id
             mapid = 0
+        gen++
     }
 
     ; ---------------- picture lines ----------------
@@ -296,8 +303,52 @@ pi {
     }
 
     ; ---------------- drawing ----------------
+    ; r0L = screen row of the page view, r1L = its kind (doc.vrow_info: 0 = a document line, which
+    ; doc.LBV holds). Called for every row: X16WPHC.BIN must hear about rows without pictures too.
     sub draw_entry() {
-        draw(cx16.r0L)
+        ubyte sr = cx16.r0L
+        ubyte id = 0
+        uword lbv = wp.LBV
+        if cx16.r1L == 0 {
+            id = @(lbv + O_PIC)
+            if id > MAXPIC or not p_used[id]
+                id = 0
+        }
+        if hc {
+            ; the first source line of the row (and the remainder) for X16WPHC.BIN, which has no room
+            ; for long multiplication / division
+            long t = 0
+            long sy = 0
+            if id != 0 {
+                uword dy = (@(lbv + O_PROW) as uword) * 8
+                t = (dy as long) * p_h[id]
+                sy = t / p_dh[id]
+                t -= sy * p_dh[id]
+                sy = sy * p_bpl[id] + 256 + p_data[id]
+            }
+            cx16.r0L = sr
+            cx16.r1L = id
+            cx16.r2L = @(lbv + O_PROW)
+            cx16.r3 = p_w[id]
+            cx16.r4 = p_h[id]
+            cx16.r5 = p_dw[id]
+            cx16.r6 = p_dh[id]
+            cx16.r7 = p_bpl[id]
+            cx16.r8L = p_bpp[id]
+            cx16.r9L = p_bank[id]
+            cx16.r11 = lsw(t)
+            cx16.r12 = lsw(sy)
+            cx16.r13L = lsb(msw(sy))
+            cx16.r13H = gen
+            if hc_row()
+                return
+        }
+        if id != 0
+            draw(sr)
+    }
+
+    sub e_hc() {
+        hc = true
     }
 
     ubyte[8] sh2 = [6, 4, 2, 0, 6, 4, 2, 0]
@@ -625,6 +676,7 @@ pi {
         p_lenhi[id] = @(lb + 16)
         if mapid == id
             mapid = 0
+        gen++
     }
 
     sub e_lines() -> bool {

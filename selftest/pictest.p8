@@ -152,9 +152,12 @@ main {
         doc.curline = 16
         doc.curcol = 1
         view.redraw_everything()
-        sys.wait(5)
+        bool hc_on = cx16.VERA_L1_CONFIG == $13 and (cx16.VERA_DC_VIDEO & $20) != 0
+        sys.wait(60)                ; -warp skips frames: let a whole one show before the snapshot
         @($9fb5) = 1
         sys.wait(10)
+        ; (printing after the snapshot: the KERNAL writes text into VRAM that layer 1 now uses)
+        check(hc_on, iso:"pictures in 256 colours on layer 1")
 
         ; a selection from text through PIC8 into the next line: the picture goes, the text joins
         doc.sel_l = 0

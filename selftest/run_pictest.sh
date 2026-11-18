@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pictures, headless: pictest.prg + X16WPPI.BIN / X16WPPL.BIN / X16WPTB.BIN (built against pictest's own
+# Pictures, headless: pictest.prg + X16WPPI.BIN / X16WPPL.BIN / X16WPHC.BIN / X16WPTB.BIN (built against pictest's own
 # symbols) in x16emu on the host file system, with test BMX files from selftest/mkbmx.py. Checks the PASS
 # lines, that save -> load -> save gives the same RTF, and that the RTF carries the BMX files byte for byte.
 # Screenshot: build/pictest/run/snap.png (macOS sips).
@@ -10,9 +10,9 @@ B="${BUILD:-$HERE/build/pictest}"
 EMU="${EMU:-/usr/local/x16emu/x16emu}"
 export PROG8C="${PROG8C:-java -jar $HOME/prog8c.jar}"
 P8="$PROG8C -target cx16 -srcdirs $HERE/lib/x16link -srcdirs $HERE"
-rm -rf "$B"; mkdir -p "$B/tb" "$B/pi" "$B/pl" "$B/run"
+rm -rf "$B"; mkdir -p "$B/tb" "$B/pi" "$B/pl" "$B/hc" "$B/run"
 $P8 -out "$B" "$HERE/selftest/pictest.p8" > "$B/pictest.log" 2>&1 || { cat "$B/pictest.log"; exit 1; }
-for lib in tb:57:x16wptb pi:54:x16wppi pl:56:x16wppl; do
+for lib in tb:57:x16wptb pi:54:x16wppi pl:56:x16wppl hc:55:x16wphc; do
   IFS=: read -r d bank src <<< "$lib"
   python3 "$HERE/tools/gen_wpsyms.py" "$B" "$B/$d/wpsyms.p8" pictest "$bank" > /dev/null
   $P8 -srcdirs "$B/$d" -out "$B" "$HERE/$src.p8" > "$B/$src.log" 2>&1 || { cat "$B/$src.log"; exit 1; }
