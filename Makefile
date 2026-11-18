@@ -19,7 +19,7 @@ run: all
 
 # new emulator with the ximodem virtual modem on UART1 (needed for ownCloud; mouse is broken in it)
 run-modem: all
-	cd build && x16emu -scale 2 -uart1 ximodem -prg x16wp.prg -run
+	cd build && x16emu -ram 2048 -scale 2 -uart1 ximodem -prg x16wp.prg -run
 
 clean:
 	rm -rf build
