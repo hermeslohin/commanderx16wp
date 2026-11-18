@@ -398,10 +398,8 @@ main {
             view.B_OUT -> doc.para_op(1, 255)
             view.B_IND -> doc.para_op(1, 1)
             view.B_TABLE -> {
-                if tblx.ready
+                if tblx.ready               ; (without X16WPTB.BIN the icon stays blank)
                     tblx.tb_menu()
-                else
-                    view.set_status(iso:"Tables need X16WPTB.BIN on the SD card")
                 cursor_event()
             }
             view.B_PIC -> {

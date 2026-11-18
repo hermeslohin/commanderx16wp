@@ -9,7 +9,7 @@ doc {
 
     const ubyte COLS = 64
     const ubyte PLINES = 54
-    const uword MAXLINES = 864
+    const uword MAXLINES = 3456         ; 64 pages; 864 (16 pages) on a 512 KB machine: see maxlines
     const ubyte MAXIND = 6
     const uword SBMAX = 640
     const ubyte CLIPBANK = 63
@@ -40,9 +40,14 @@ doc {
 
     ; line order: slot number of every line (MAXLINES words). It lives in banked RAM (bank ORDERBANK at
     ; $A000) to leave main RAM for the program; oslot() maps that bank, slot_ptr() then maps the line's.
+    ; The map of used line slots (1 bit each) is in the same bank at slotmap.
+    ; Line slots: 32 per bank, slots 0..863 in banks 1..27 (every X16), slots 864.. in banks 64.. (1 MB or
+    ; more: up to MAXLINES). maxlines = what this machine has room for.
     const ubyte ORDERBANK = 58
     const uword order = $a000
-    uword slotmap = memory("slotmap", 112, 0)
+    const uword slotmap = $a000 + MAXLINES * 2      ; MAXLINES / 8 bytes
+    uword maxlines
+    bool pg_over                    ; repaginate: the text needs more than 64 pages
     uword LB = memory("lb", 256, 0)
     uword LBV = memory("lbv", 256, 0)
     uword sbch = memory("sbch", 640, 0)
@@ -84,29 +89,35 @@ doc {
 
     ; ---------------- slots ----------------
     sub slot_ptr(uword slot) -> uword {
-        cx16.rambank(lsb(slot >> 5) + 1)
+        ubyte b = lsb(slot >> 5) + 1
+        if b > 27
+            b += 36                         ; slots 864.. in banks 64..
+        cx16.rambank(b)
         return $a000 + ((slot & 31) << 8)
     }
 
     sub alloc_slot() -> uword {
-        ubyte b
+        uword p = slotmap
         ubyte bit
         ubyte v
-        for b in 0 to 107 {
-            v = @(slotmap + b)
+        cx16.rambank(ORDERBANK)
+        while p < slotmap + maxlines / 8 {
+            v = @(p)
             if v != 255 {
                 for bit in 0 to 7 {
                     if (v & (1 << bit)) == 0 {
-                        @(slotmap + b) = v | (1 << bit)
-                        return (b as uword) * 8 + bit
+                        @(p) = v | (1 << bit)
+                        return (p - slotmap) * 8 + bit
                     }
                 }
             }
+            p++
         }
         return $ffff
     }
 
     sub free_slot(uword s) {
+        cx16.rambank(ORDERBANK)
         ubyte b = lsb(s >> 3)
         @(slotmap + b) = @(slotmap + b) & ~(1 << (lsb(s) & 7))
     }
@@ -149,7 +160,7 @@ doc {
     }
 
     sub insert_blank(uword idx) -> bool {
-        if nlines >= MAXLINES {
+        if nlines >= maxlines or pg_over {
             full_error = true
             return false
         }
@@ -185,7 +196,13 @@ doc {
     }
 
     sub init_doc() {
-        sys.memset(slotmap, 112, 0)
+        ; line slots this machine has: banks 1..27, and 64.. if there are more than 64 banks
+        uword nb = cx16.numbanks()
+        if nb > 145
+            nb = 145                        ; 64 + (MAXLINES - 864) / 32
+        maxlines = (nb << 5) - 1184         ; 864 + (nb - 64) * 32
+        cx16.rambank(ORDERBANK)
+        sys.memset(slotmap, MAXLINES / 8, 0)
         nlines = 0
         void insert_blank(0)
         curline = 0
@@ -292,6 +309,7 @@ doc {
         ubyte h
         ubyte f
         ubyte need
+        pg_over = false
         pfirst[0] = 0
         for l in 0 to nlines - 1 {
             f = meta(l, O_FLG)
@@ -305,7 +323,8 @@ doc {
                         p++
                         pfirst[p] = l
                         rows = 0
-                    }
+                    } else
+                        pg_over = true          ; more than 64 pages: no more lines
                 }
             }
             rows += h
@@ -725,9 +744,11 @@ doc {
     }
 
     sub page_break() {
-        if npages >= 60 or meta(curline, O_TBL) != 0 or meta(curline, O_PIC) != 0
+        if npages >= 63 or meta(curline, O_TBL) != 0 or meta(curline, O_PIC) != 0
             return
         newline()
+        if full_error
+            return                          ; no room for the new line: no break either
         setmeta(curline, O_FLG, meta(curline, O_FLG) | F_HARD)
         need_repag = true
         mark_from(curline - 1)

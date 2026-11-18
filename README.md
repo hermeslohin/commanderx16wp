@@ -100,6 +100,9 @@ file is downloaded as it is). On an empty line the picture goes there, otherwise
   drawing, keys / selections / paste, RTF export) and **X16WPPL.BIN** (RAM bank 56 at $A200,
   `x16wppl.p8`: the Picture button, reading BMX files, the palette map, RTF import, and the toolbar's
   tool tips); `pix.p8` is the main-RAM side. Without them there are no pictures and no tool tips.
+* `selftest/run_bigtest.sh` runs long-document tests with 512 KB and with 2 MB: filling to 864 / 3456
+  lines, lines in banks 64.., 16 / 64 pages, the full-document guards, slot reuse, RTF save -> load ->
+  save of a full document, and 2 / 13 big pictures.
 * `selftest/run_pictest.sh` tests pictures headless with the real libraries (test BMX files from
   `selftest/mkbmx.py`): insert, the key / selection / paste guards, paragraph operations, full memory,
   page breaks, and RTF save -> load -> save identical with the BMX files byte for byte.
@@ -168,7 +171,12 @@ saving into them, Replace, Cancel going back, saving back to the same ownCloud f
 `build/saveastest/shots.gif`.
 
 ## Notes / limits
-* 16 pages max (864 lines), clipboard 2700 characters, file names are typed in a dialog.
+* Document length depends on the X16's RAM: **16 pages** (864 lines) with the standard 512 KB, up to
+  **64 pages** (3456 lines) with 1.5 MB or 2 MB (1 MB: about 53 pages). The extra lines go in RAM banks
+  64..144 (`doc.p8`: line slots 864.. ; the map of used slots is in bank 58 next to the line order), and
+  pictures also use the banks above them. A document that needs more pages than that (large fonts, page
+  breaks) refuses new lines ("Document is full!"); opening a longer file keeps its beginning.
+* Clipboard 2700 characters, file names are typed in a dialog.
 * Opening RTF from other programs is best effort (colours map by index, one font family each).
 * `selftest/selftest.p8` is a scripted headless test (builds a document, exports, re-imports).
 * `selftest/run_tabletest.sh` tests tables headless with the real X16WPTB.BIN: insert, typing, Tab /

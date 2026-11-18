@@ -9,7 +9,8 @@
 ; Pictures are BMX files (the Commander X16 bitmap format, version 1, uncompressed, 1/2/4/8 bpp,
 ; up to 640 x 1024). A picture is a run of document lines (one screen row each, no text):
 ; O_PIC = picture id 1..15, O_PROW = the line's row in the picture, byte 0 = the picture's line count.
-; Its data lives in RAM banks 28..53 (whole banks, 26 x 8 KB): 256 bytes of palette map (BMX colour
+; Its data lives in RAM banks 28..53 (whole banks, 26 x 8 KB), and on machines with more than 1 MB also
+; in the banks above the document's lines (145.., up to 110 more): 256 bytes of palette map (BMX colour
 ; -> screen colour) and then the BMX file itself. Pictures no document line refers to any more
 ; (deleted, New, Open) are freed the next time memory is needed.
 ;
@@ -59,13 +60,15 @@ pi {
     const ubyte F_SOFT = 1
     const ubyte ROW0 = 5                ; view.ROW0
     const ubyte MAXPIC = 15
-    const ubyte DB0 = 28                ; data banks 28..53
-    const ubyte NDB = 26
+    const ubyte DB0 = 28                ; data banks 28..53 (bown 0..25)
+    const ubyte NLO = 26
+    const ubyte NDB = 137               ; + bown 26 = a wall, 27..136 = banks hi0.. (machines over 1 MB)
     const ubyte MAXLINES = 40           ; 320 screen rows at most
 
     ; per picture (index = id 1..15)
     bool[16] p_used
     ubyte[16] p_bank                    ; first data bank
+    ubyte[16] p_start                   ; its index in bown
     ubyte[16] p_nb                      ; data banks
     uword[16] p_w
     uword[16] p_h
@@ -77,7 +80,8 @@ pi {
     ubyte[16] p_lines
     uword[16] p_lenlo                   ; BMX file length
     ubyte[16] p_lenhi
-    ubyte[NDB] bown                     ; data bank owner (picture id, 0 = free)
+    ubyte[NDB] bown                     ; data bank owner (picture id, 0 = free, 255 = not there)
+    ubyte hi0                           ; first bank above the document lines (doc.p8: banks 64..144)
     bool[16] refd
 
     ubyte[256] map                      ; palette map of picture mapid
@@ -91,6 +95,24 @@ pi {
     sub setup() -> bool {
         if cx16.r0 != wp.CHECK
             return false
+        ; banks above the document's lines: numbanks - (64 + up to 81 banks of lines), see doc.p8
+        uword nb = cx16.numbanks()
+        uword top = nb
+        if top > 145
+            top = 145
+        if top < 64
+            top = 64
+        hi0 = lsb(top)
+        ubyte b
+        for b in 0 to NDB - 1 {
+            bown[b] = 0
+            if b == NLO
+                bown[b] = 255                           ; the wall between the two pools
+            else if b > NLO {
+                if ((b - (NLO + 1)) as uword) + top >= nb
+                    bown[b] = 255                       ; no such bank on this machine
+            }
+        }
         ubyte i
         sys.set_irqd()
         cx16.vaddr(1, $7800 + 42 * 8, 0, 1)            ; font slot 3 = VRAM $17800
@@ -122,7 +144,7 @@ pi {
             c = $2000 - a
             if c > n
                 c = n
-            wp.bxfer(p_bank[id] + lsb(off >> 13), $a000 + a, dst, c, out as ubyte)
+            wp.bxfer(p_bank[id] + lsb(off >> 13), $a000 + a, dst, c, out as ubyte)     ; a run never crosses the wall
             off += c
             dst += c
             n -= c
@@ -213,7 +235,11 @@ pi {
         for b in start to start + nb - 1
             bown[b] = id
         p_used[id] = true
-        p_bank[id] = DB0 + start
+        p_start[id] = start
+        if start < NLO
+            p_bank[id] = DB0 + start
+        else
+            p_bank[id] = hi0 + start - (NLO + 1)
         p_nb[id] = nb
         if mapid == id
             mapid = 0
@@ -577,7 +603,7 @@ pi {
     sub e_shrink() {
         ubyte id = cx16.r0L
         ubyte nb = cx16.r1L
-        ubyte start = p_bank[id] - DB0
+        ubyte start = p_start[id]
         free(id)
         claim(id, start, nb)
     }

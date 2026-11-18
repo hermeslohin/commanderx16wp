@@ -37,7 +37,7 @@ cloudx {
                 }
             }
         }
-        view.set_status(iso:"ownCloud files missing/mismatched on SD")
+        view.set_status(iso:"ownCloud files missing")
         return false
     }
 
