@@ -426,9 +426,10 @@ pl {
         }
         uword s = iso:""
         when id {
+            255 -> s = iso:"Next theme"
             1 -> s = iso:"New document"
             2 -> s = iso:"Open from SD card or ownCloud"
-            3 -> s = iso:"Save (back to ownCloud if opened there)"
+            3 -> s = iso:"Save (to ownCloud if opened there)"
             4 -> s = iso:"Save As on SD card or ownCloud"
             5 -> s = iso:"Cut"
             6 -> s = iso:"Copy"

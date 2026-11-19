@@ -31,7 +31,7 @@ main {
         vid.load_fonts()
         vid.gfx_init()
         view.init()
-        theme.init()             ; after the icons: Sunset glyphs into font slot 3, Quill on
+        void themes(0)           ; after the icons: the chosen theme (X16THEME.CFG, X16THEMEn.BIN), Quill on
         tblx.load()              ; tables (X16WPTB.BIN, bank 57; uploads the Table icon)
         pix.load()               ; pictures and tool tips (X16WPPI.BIN, bank 54; uploads the Picture icon)
         doc.init_doc()
@@ -55,6 +55,23 @@ main {
         }
         theme.off()
         vid.gfx_off()
+    }
+
+    ; X16WPTH.BIN reads the theme files (no room for that in main RAM): loaded when needed into RAM
+    ; bank 55 at $A400 (vid.p8's compose buffers, idle then; see x16wpth.p8)
+    extsub @bank 55 $A400 = th_init() clobbers(A, X, Y)
+    extsub @bank 55 $A403 = th_run(uword rl @R0, uword dk @R1, uword msg @R2, uword cur @R3, ubyte what @R4) clobbers(X, Y) -> bool @A
+
+    ; what = 0: the saved theme, 1: the next one. false: no theme files (or no X16WPTH.BIN)
+    sub themes(ubyte what) -> bool {
+        ubyte b = cx16.getrambank()
+        cx16.rambank(55)
+        uword e = diskio.load_raw(iso:"X16WPTH.BIN", $a400)
+        cx16.rambank(b)
+        if e == 0
+            return false
+        th_init()
+        return th_run(&theme.rl, &theme.dk, &theme.msg, &theme.cur, what)
     }
 
     sub take_snapshot() {
@@ -230,9 +247,11 @@ main {
 
     sub hover(ubyte cx, ubyte cy) {
         ubyte id = view.find_button(cx, cy)
+        if cy == 29 and cx < 2
+            id = 255                        ; Quill
         if id != last_tip {
             last_tip = id
-            pix.tip(id)                     ; X16WPPI.BIN holds the tool tips
+            pix.tip(id)                     ; X16WPPL.BIN holds the tool tips
         }
     }
 
@@ -240,6 +259,15 @@ main {
         ubyte id = view.find_button(cx, cy)
         if id != 0 {
             do_button(id)
+            return
+        }
+        if cy == 29 and cx < 2 {
+            ; Quill: the next theme, for every X16 Office app
+            if themes(1) {
+                view.set_status(theme.msg)
+                view.redraw_everything()
+                theme.cheer()
+            }
             return
         }
         if cx == 79 and cy >= view.ROW0 and cy < view.ROW0 + view.VIEWROWS {

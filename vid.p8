@@ -35,6 +35,9 @@ vid {
     const ubyte NFONTS = 3
 
     const uword FONT_VRAM = $6000       ; bank 1, $16000 .. 3 fonts of 2 KB
+    ; theme.p8 reads a theme file into this buffer (512 bytes, rtf.p8's file buffer: idle then)
+    const ubyte TBANK = 56
+    const uword TBUF = $a000
 
     ; cell composition arrays: filled by the caller, drawn by render_run()
     ubyte[80] r_ch

@@ -7,9 +7,11 @@
 #   build/x16wppi.bin   pictures bank library (bank 54, its own wpsyms.p8 in build/pi)
 #   build/x16wppl.bin   picture loading + tool tips bank library (bank 56 at $A200, build/pl)
 #   build/x16wphc.bin   256-colour pictures bank library (bank 55 at $AE00, build/hc)
+#   build/x16wpth.bin   theme loader bank library (loaded when needed into bank 55 at $A400)
 #   build/x16link.bin, build/x16docs.bin   X16Link libraries (sources vendored in lib/x16link)
 # and (with an SD dir argument) copies them there as X16WP.PRG, X16WPCL.BIN, X16WPSA.BIN, X16WPTB.BIN,
-# X16WPPI.BIN, X16WPPL.BIN, X16WPHC.BIN, X16LINK.BIN, X16DOCS.BIN.
+# X16WPPI.BIN, X16WPPL.BIN, X16WPHC.BIN, X16WPTH.BIN, X16LINK.BIN, X16DOCS.BIN, and the theme files
+# X16THEME1.BIN .. X16THEME6.BIN (tools/mkthemes.py, shared by the X16 Office apps).
 # Env: PROG8C = Prog8 12.3.x compiler command (default: prog8c on PATH; e.g. "java -jar prog8c.jar"),
 #      X16LINK_LIB = library sources (default: the vendored lib/x16link), BUILD = output dir.
 set -eu
@@ -39,11 +41,14 @@ run "$B/x16wppl.log" $P8 -srcdirs "$HERE" -srcdirs "$B/pl" -out "$B" "$HERE/x16w
 mkdir -p "$B/hc"
 python3 "$HERE/tools/gen_wpsyms.py" "$B" "$B/hc/wpsyms.p8" x16wp 55
 run "$B/x16wphc.log" $P8 -srcdirs "$HERE" -srcdirs "$B/hc" -out "$B" "$HERE/x16wphc.p8"
+run "$B/x16wpth.log" $P8 -srcdirs "$HERE" -out "$B" "$HERE/x16wpth.p8"
+python3 "$HERE/tools/mkthemes.py" "$B" > /dev/null      # X16THEME1.BIN .. (shared by the X16 Office apps)
 if [ $# -ge 1 ]; then
   SD="$1"; mkdir -p "$SD"
   cp "$B/x16wp.prg" "$SD/X16WP.PRG"; cp "$B/x16wpcl.bin" "$SD/X16WPCL.BIN"; cp "$B/x16wpsa.bin" "$SD/X16WPSA.BIN"
   cp "$B/x16wptb.bin" "$SD/X16WPTB.BIN"; cp "$B/x16wppi.bin" "$SD/X16WPPI.BIN"; cp "$B/x16wppl.bin" "$SD/X16WPPL.BIN"
   cp "$B/x16wphc.bin" "$SD/X16WPHC.BIN"
+  cp "$B/x16wpth.bin" "$SD/X16WPTH.BIN"; cp "$B"/X16THEME*.BIN "$SD/"
   cp "$B/x16link.bin" "$SD/X16LINK.BIN"; cp "$B/x16docs.bin" "$SD/X16DOCS.BIN"
   echo "copied to $SD"
 fi

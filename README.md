@@ -5,19 +5,38 @@ lands in `build/`: **x16wp.prg**, **x16wpcl.bin** (ownCloud UI, RAM bank 62), **
 folder browser, RAM bank 59, loaded by x16wpcl.bin), **x16wptb.bin** (tables, RAM bank 57; the line-order
 table is in bank 58, the RTF file buffer in bank 56, the renderer's buffers in bank 55), **x16wppi.bin** and
 **x16wppl.bin** (pictures, RAM bank 54 and bank 56 from $A200, and the tool tips; picture data in banks
-28-53), **x16wphc.bin** (256-colour pictures, RAM bank 55 from $AE00), **x16link.bin** and
+28-53), **x16wphc.bin** (256-colour pictures, RAM bank 55 from $AE00), **x16wpth.bin** (reads the theme files), **x16link.bin** and
 **x16docs.bin** (X16Link libraries, banks 60/61, sources vendored in `lib/x16link/`, see
 `lib/x16link/VENDORED.md`). `make sd SD=<dir>` also copies them as X16WP.PRG, X16WPCL.BIN,
-X16WPSA.BIN, X16WPTB.BIN, X16WPPI.BIN, X16WPPL.BIN, X16WPHC.BIN, X16LINK.BIN, X16DOCS.BIN. Run: `make run` (needs a mouse, 512 KB RAM). Without the .BIN files on the
+X16WPSA.BIN, X16WPTB.BIN, X16WPPI.BIN, X16WPPL.BIN, X16WPHC.BIN, X16WPTH.BIN, X16LINK.BIN, X16DOCS.BIN
+and the themes X16THEME1.BIN .. X16THEME6.BIN (see Themes). Run: `make run` (needs a mouse, 512 KB RAM). Without the .BIN files on the
 SD card the program still works as a plain SD-card word processor. (`x16wp.prg`/`.asm` in the repo
 root are the original pre-cloud build, kept for reference.)
 
 ## Screen
 Row 0 title/quit - rows 1-2 icon toolbars - row 3 text colour + highlight swatches - row 4 ruler -
 scrolling page view with page border, per-page title bars and a scroll bar - status bar (tool tips on hover).
-Colours: the "Sunset Arcade" theme shared by the X16 Office apps (`theme.p8`): striped title bar, cream
-page on a starry desk, yellow ruler tape, and Quill the pencil mascot in the status bar, who hops after a
-successful open or save. Saved documents keep the original colours (RTF export uses `theme.doc_lo/doc_hi`).
+## Themes
+**Click Quill**, the pencil mascot in the bottom left corner of the status bar, to switch to the next
+theme; the status bar shows its name. Six come with X16 Office: **Sunset Arcade** (striped title bar,
+cream page on a starry desk), **Crayon Desk** (a notebook on a wooden desk, crayons for text colours),
+**Comic Book**, **Beach Hut**, **Chalkboard** and **Winter Cabin**. The choice is saved in
+`X16THEME.CFG` and shared by all the X16 Office apps (Write, Sheets, Files, Calendar): pick a theme in
+one and the others start with it. Quill blinks now and then and hops after a successful open or save.
+
+Each theme is a 472-byte file, `X16THEME1.BIN` .. `X16THEME6.BIN` (made by `tools/mkthemes.py`, the
+same script in every X16 Office repository; delete the ones you don't want, or add your own). Only the
+chosen one is read: its 16 colours go into the VERA palette, its glyphs (desk pattern, title bar fill,
+page edges) into font slot 3 and Quill into the sprite data, so a theme costs almost no RAM. Main RAM
+keeps a 64-byte table saying which colour each part of the screen uses (`theme.rl`, roles `theme.R_*`)
+and the desk pattern. X16 Write's main RAM is full, so the part of `theme.p8` that reads the files runs
+from `X16WPTH.BIN` (`x16wpth.p8`), loaded only when needed into RAM bank 55 at $A400 (the compose
+buffers, idle then). Without the theme files (or X16WPTH.BIN) X16 Write uses the built-in Sunset Arcade
+colours and Quill stays hidden.
+
+Every theme keeps the meaning of the 16 colour indexes (red is a red, yellow a yellow...), so documents
+look right in all of them, and saved documents keep the original colours (RTF export uses
+`theme.doc_lo/doc_hi`). Dialogs keep the same colours in every theme.
 
 Icons: New, Open, Save, Save As, Cut, Copy, Paste, Select All, Page Break | Bold, Italic, Underline,
 Left/Center/Right, Bullets, Numbers, Outdent, Indent, Font menu | 16 text colours | 16 highlight colours.
@@ -116,6 +135,9 @@ needs a hub with BMX conversion, `conv 4`; older hubs show those files greyed ou
 * `selftest/run_pictest.sh` tests pictures headless with the real libraries (test BMX files from
   `selftest/mkbmx.py`): insert, the key / selection / paste guards, paragraph operations, full memory,
   page breaks, and RTF save -> load -> save identical with the BMX files byte for byte.
+* `selftest/run_themetest.sh` tests themes headless with the real X16WPTH.BIN and theme files: no
+  X16THEME.CFG gives theme 1, Quill's next() goes through all six and back, X16THEME.CFG brings the
+  choice back; one screenshot per theme (`build/themetest/snap-1.png` ..; set PY to a python3 with Pillow).
 
 ## Save As: folders
 

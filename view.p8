@@ -117,6 +117,8 @@ view {
             for r in 0 to 7
                 cx16.VERA_DATA0 = ic_lo[k * 8 + r]
         }
+        repeat 2048 - 20 * 16
+            cx16.VERA_DATA0 = 0                 ; the rest blank: the theme's glyphs until a theme file is read
         sys.clear_irqd()
     }
 
@@ -169,17 +171,17 @@ view {
         }
     }
 
-    ; Sunset icon faces: New pink, Open orange, Save teal, Quit pink, the rest violet with cream
-    ; glyphs; an "on" toggle is black on yellow
+    ; icon faces from the theme: New (and Quit), Open and Save have accent faces (Sunset: pink, orange,
+    ; teal), the rest the normal face; an "on" toggle has its own
     sub icon(ubyte col, ubyte row, ubyte k, ubyte id, bool active) {
-        ubyte kc = (vid.C_GRAY << 4) | vid.C_WHITE
+        ubyte kc = theme.rl[theme.R_BTN]
         when id {
-            B_NEW, B_QUIT -> kc = vid.C_RED << 4
-            B_OPEN -> kc = vid.C_ORANGE << 4
-            B_SAVE -> kc = vid.C_CYAN << 4
+            B_NEW, B_QUIT -> kc = theme.rl[theme.R_BTN_1]
+            B_OPEN -> kc = theme.rl[theme.R_BTN_2]
+            B_SAVE -> kc = theme.rl[theme.R_BTN_3]
         }
         if active
-            kc = vid.C_YELLOW << 4
+            kc = theme.rl[theme.R_BTN_ON]
         vid.r_ch[0] = k * 2
         vid.r_ch[1] = k * 2 + 1
         vid.r_sty[0] = theme.S_THEME
@@ -218,68 +220,77 @@ view {
     }
 
     ; ---------------- toolbar ----------------
+    ubyte[21] tb_id = [B_NEW, B_OPEN, B_SAVE, B_SAVEAS, B_CUT, B_COPY, B_PASTE, B_ALL, B_PGBRK, B_TABLE, B_PIC,
+                       B_BOLD, B_ITAL, B_UNDER, B_AL, B_AC, B_AR, B_BUL, B_NUM, B_OUT, B_IND]
+    ubyte[21] tb_col = [1, 4, 7, 10, 15, 18, 21, 24, 29, 34, 37, 1, 4, 7, 12, 15, 18, 23, 26, 31, 34]
+
     sub draw_toolbar() {
         vid.compose_begin()     ; drawn row by row in one pass each: no flash
         bt_n = 0
-        ; title bar: Sunset stripes with black chips
+        ; title bar: the theme's fill with chips for the name, file name and page count
         theme.stripes(0, 0, 80)
-        vid.text(1, 0, iso:" X16 WRITE ", vid.S_BOLD, vid.C_YELLOW, vid.C_BLACK)
+        ubyte k = theme.rl[theme.R_TTL_NAME]
+        vid.text(1, 0, iso:" X16 WRITE ", vid.S_BOLD, k & 15, k >> 4)
+        k = theme.rl[theme.R_TTL_TXT]
+        ubyte tf = k & 15
+        ubyte tb = k >> 4
         ubyte x = 14
         while filename[x - 14] != 0
             x++
-        vid.fill(13, 0, x - 12, 0, vid.C_BLACK)
-        put(14, 0, filename, vid.C_WHITE, vid.C_BLACK)
+        vid.fill(13, 0, x - 12, 0, tb)
+        put(14, 0, filename, tf, tb)
         if doc.modified
-            put(x, 0, iso:" (modified) ", vid.C_LRED, vid.C_BLACK)
-        vid.fill(59, 0, 15, 0, vid.C_BLACK)
-        put(60, 0, iso:"Page", vid.C_WHITE, vid.C_BLACK)
-        num(65, 0, page_cur() + 1, vid.C_WHITE, vid.C_BLACK)
-        put(68, 0, iso:"of", vid.C_WHITE, vid.C_BLACK)
-        num(71, 0, doc.npages, vid.C_WHITE, vid.C_BLACK)
-        vid.fill(76, 0, 4, 0, vid.C_BLACK)
+            put(x, 0, iso:" (modified) ", theme.rl[theme.R_TTL_WARN], tb)
+        vid.fill(59, 0, 15, 0, tb)
+        put(60, 0, iso:"Page", tf, tb)
+        num(65, 0, page_cur() + 1, tf, tb)
+        put(68, 0, iso:"of", tf, tb)
+        num(71, 0, doc.npages, tf, tb)
+        vid.fill(76, 0, 4, 0, tb)
         icon(77, 0, 19, B_QUIT, false)
 
-        vid.fill(0, 1, 80, 0, vid.C_DGRAY)
-        vid.fill(0, 2, 80, 0, vid.C_DGRAY)
-        vid.fill(0, 3, 80, 0, vid.C_BLACK)
-        ; row 1: file / edit / page
-        icon(1, 1, 0, B_NEW, false)
-        icon(4, 1, 1, B_OPEN, false)
-        icon(7, 1, 2, B_SAVE, false)
-        icon(10, 1, 3, B_SAVEAS, false)
-        icon(15, 1, 4, B_CUT, false)
-        icon(18, 1, 5, B_COPY, false)
-        icon(21, 1, 6, B_PASTE, false)
-        icon(24, 1, 7, B_ALL, false)
-        icon(29, 1, 8, B_PGBRK, false)
-        icon(34, 1, 20, B_TABLE, false)
-        icon(37, 1, 21, B_PIC, false)
-        ; row 2: character + paragraph formatting
-        icon(1, 2, 9, B_BOLD, (doc.tsty & 1) != 0)
-        icon(4, 2, 10, B_ITAL, (doc.tsty & 2) != 0)
-        icon(7, 2, 11, B_UNDER, (doc.tsty & 4) != 0)
+        tb = theme.rl[theme.R_TOOL]
+        vid.fill(0, 1, 80, 0, tb)
+        vid.fill(0, 2, 80, 0, tb)
+        vid.fill(0, 3, 80, 0, theme.rl[theme.R_STRIP] >> 4)
+        ; rows 1 and 2: the icons (tb_id / tb_col; icon glyph pair = id - 1, Table and Picture id - 2)
         ubyte al = doc.meta(doc.curline, doc.O_AL)
         ubyte li = doc.meta(doc.curline, doc.O_LIST)
-        icon(12, 2, 12, B_AL, al == 0)
-        icon(15, 2, 13, B_AC, al == 1)
-        icon(18, 2, 14, B_AR, al == 2)
-        icon(23, 2, 15, B_BUL, li == 1)
-        icon(26, 2, 16, B_NUM, li == 2)
-        icon(31, 2, 17, B_OUT, false)
-        icon(34, 2, 18, B_IND, false)
+        ubyte j
+        for j in 0 to 20 {
+            ubyte id = tb_id[j]
+            bool on = false
+            if id >= B_BOLD and id <= B_UNDER
+                on = (doc.tsty & (1 << (id - B_BOLD))) != 0
+            else if id >= B_AL and id <= B_AR
+                on = al == id - B_AL
+            else if id == B_BUL or id == B_NUM
+                on = li == id - (B_BUL - 1)
+            ubyte g = id - 1
+            if id >= B_TABLE
+                g--
+            ubyte r = 1
+            if j >= 11
+                r = 2
+            icon(tb_col[j], r, g, id, on)
+        }
         ; font selector
         ubyte f = (doc.tsty >> 4) & 3
-        theme.cap(38, 2, theme.G_LCAP, vid.C_WHITE, vid.C_DGRAY)
-        theme.cap(61, 2, theme.G_RCAP, vid.C_WHITE, vid.C_DGRAY)
-        vid.fill(39, 2, 22, 0, vid.C_WHITE)
-        vid.text(40, 2, vid.font_name(f), (f << 4), 0, vid.C_WHITE)
-        vid.text(60, 2, iso:"v", 0, 0, vid.C_WHITE)
+        k = theme.rl[theme.R_FIELD]
+        tf = k & 15
+        k >>= 4
+        theme.cap(38, 2, theme.G_LCAP, k, tb)
+        theme.cap(61, 2, theme.G_RCAP, k, tb)
+        vid.fill(39, 2, 22, 0, k)
+        vid.text(40, 2, vid.font_name(f), (f << 4), tf, k)
+        vid.text(60, 2, iso:"v", 0, tf, k)
         add_btn(39, 2, 22, B_FONT)
-        vid.text(55, 2, size_name[doc.tsty >> 6], 0, vid.C_BLUE, vid.C_WHITE)
+        vid.text(55, 2, size_name[doc.tsty >> 6], 0, theme.rl[theme.R_FIELD_HI], k)
         ; row 3: colours
         ubyte i
-        put(1, 3, iso:"Text", vid.C_WHITE, vid.C_BLACK)
-        put(41, 3, iso:"Back", vid.C_WHITE, vid.C_BLACK)
+        k = theme.rl[theme.R_STRIP]
+        put(1, 3, iso:"Text", k & 15, k >> 4)
+        put(41, 3, iso:"Back", k & 15, k >> 4)
         for i in 0 to 15 {
             swatch(6 + i * 2, i, B_TXT0 + i, doc.tfg == i)
             swatch(46 + i * 2, i, B_HIL0 + i, doc.tbg == i)
@@ -288,32 +299,50 @@ view {
         vid.compose_end()
     }
 
+    ; a swatch: two cells drawn as the theme says (theme.R_SW_T0..R_SW_B1)
     sub swatch(ubyte col, ubyte color, ubyte id, bool cur) {
-        ubyte k = (color << 4) | color
-        vid.r_ch[0] = 32
-        vid.r_ch[1] = 32
-        vid.r_sty[0] = 0
-        vid.r_sty[1] = 0
-        vid.r_col[0] = k
-        vid.r_col[1] = k
+        ubyte r = theme.R_SW_T0
+        if id >= B_HIL0
+            r = theme.R_SW_B0
+        swcell(0, theme.rl[r], color)
+        swcell(1, theme.rl[r + 1], color)
         if cur {
             ; mark the current colour with a small box in contrasting colour
             ubyte contrast = vid.C_BLACK
             if color == 0 or color == 6 or color == 2 or color == 11 or color == 9
                 contrast = vid.C_WHITE
             vid.r_ch[0] = iso:'x'
+            vid.r_sty[0] = 0
             vid.r_col[0] = (color << 4) | contrast
         }
         vid.render_run(3, col, 2)
         add_btn(col, 3, 2, id)
     }
 
+    ; code 0: a block of the colour; else that char (32 or a theme glyph) in the colour on the strip
+    ; (in theme.R_SW_INK if the colour is the strip's own)
+    sub swcell(ubyte i, ubyte code, ubyte color) {
+        ubyte sb = theme.rl[theme.R_STRIP] & $f0
+        if code == 0 {
+            vid.r_ch[i] = 32
+            vid.r_sty[i] = 0
+            vid.r_col[i] = (color << 4) | color
+            return
+        }
+        mcell(i, code)
+        if color << 4 == sb
+            color = theme.rl[theme.R_SW_INK]
+        vid.r_col[i] = sb | color
+    }
+
     sub draw_ruler() {
         ubyte c
         theme.desk(0, 4, 80)
         ; yellow tape with red margin markers at both ends
-        theme.cap(PAGE_X - 1, 4, theme.G_LCAP, vid.C_RED, vid.C_BLACK)
-        theme.cap(PAGE_X + 64, 4, theme.G_RCAP, vid.C_RED, vid.C_BLACK)
+        ubyte k = theme.rl[theme.R_TAPE_CAP]
+        theme.cap(PAGE_X - 1, 4, theme.G_LCAP, k, theme.rl[theme.R_DESK])
+        theme.cap(PAGE_X + 64, 4, theme.G_RCAP, k, theme.rl[theme.R_DESK])
+        k = theme.rl[theme.R_TAPE]
         for c in 0 to 63 {
             vid.r_ch[c] = iso:'.'
             if c % 8 == 0
@@ -321,7 +350,7 @@ view {
             else if c % 4 == 0
                 vid.r_ch[c] = iso:'+'
             vid.r_sty[c] = 0
-            vid.r_col[c] = (vid.C_YELLOW << 4) | vid.C_BLACK
+            vid.r_col[c] = k
         }
         vid.render_run(4, PAGE_X, 64)
     }
@@ -352,13 +381,15 @@ view {
         for i in 0 to 79 {
             vid.r_ch[i] = 32
             vid.r_sty[i] = 0
-            vid.r_col[i] = (vid.C_BLACK << 4) | vid.C_WHITE
+            vid.r_col[i] = theme.rl[theme.R_STAT]
         }
-        st_put(3, status_msg, vid.C_WHITE)
-        st_put(56, iso:"Ln", vid.C_YELLOW)
-        st_put(59, conv.str_uw((doc.curline - doc.pfirst[page_cur()]) + 1), vid.C_WHITE)
-        st_put(65, iso:"Col", vid.C_YELLOW)
-        st_put(69, conv.str_uw(doc.curcol + 1), vid.C_WHITE)
+        ubyte fg = theme.rl[theme.R_STAT] & 15
+        ubyte lb = theme.rl[theme.R_STAT_LBL]
+        st_put(3, status_msg, fg)
+        st_put(56, iso:"Ln", lb)
+        st_put(59, conv.str_uw((doc.curline - doc.pfirst[page_cur()]) + 1), fg)
+        st_put(65, iso:"Col", lb)
+        st_put(69, conv.str_uw(doc.curcol + 1), fg)
         vid.render_run(STATUS_ROW, 0, 80)
     }
 
@@ -366,7 +397,7 @@ view {
         ubyte n = 0
         while @(s + n) != 0 and col < 80 {
             vid.r_ch[col] = @(s + n)
-            vid.r_col[col] = (vid.C_BLACK << 4) | fg
+            vid.r_col[col] = (theme.rl[theme.R_STAT] & $f0) | fg
             col++
             n++
         }
@@ -375,23 +406,9 @@ view {
     ; ---------------- page view ----------------
     ubyte deskrow           ; virtual row (vtop + screen row) being drawn: the desk stars scroll with the page
 
-    ; starry desk cells like theme.desk(), into the r_ arrays (pattern by column and virtual row)
+    ; the theme's desk, its pattern by column and virtual row
     sub desk_row() {
-        ubyte c
-        ubyte h
-        for c in 0 to 79 {
-            vid.r_ch[c] = 32
-            vid.r_sty[c] = 0
-            vid.r_col[c] = (vid.C_BLACK << 4) | vid.C_GRAY
-            h = (c * 7 + deskrow * 13) & 31
-            if h == 3 {
-                vid.r_ch[c] = theme.G_STAR2
-                vid.r_sty[c] = theme.S_THEME
-            } else if h == 11 or h == 22 {
-                vid.r_ch[c] = theme.G_STAR
-                vid.r_sty[c] = theme.S_THEME
-            }
-        }
+        theme.desk_fill(0, deskrow, 80)
     }
 
     sub paper_row() {
@@ -402,12 +419,24 @@ view {
             vid.r_sty[c] = 0
         }
         for c in PAGE_X to PAGE_X + 63
-            vid.r_col[c] = (vid.C_WHITE << 4) | vid.C_BLACK
-        vid.r_col[PAGE_X - 1] = 0
-        vid.r_col[PAGE_X + 64] = 0
-        vid.r_col[PAGE_X + 65] = (vid.C_DGRAY << 4) | vid.C_DGRAY
+            vid.r_col[c] = theme.rl[theme.R_PAPER]
+        c = theme.rl[theme.R_MARG]
+        vid.r_col[PAGE_X - 1] = c
+        vid.r_col[PAGE_X + 64] = c
+        mcell(PAGE_X - 1, theme.rl[theme.R_MARG_L])
+        mcell(PAGE_X + 64, theme.rl[theme.R_MARG_R])
+        c = theme.rl[theme.R_SHADOW]
+        vid.r_col[PAGE_X + 65] = (c << 4) | c
         vid.r_ch[PAGE_X + 65] = 32
         vid.r_sty[PAGE_X + 65] = 0
+    }
+
+    ; a theme char (32 or a glyph 240..255) into cell c
+    sub mcell(ubyte c, ubyte ch) {
+        vid.r_ch[c] = ch
+        vid.r_sty[c] = 0
+        if ch >= 240
+            vid.r_sty[c] = theme.S_THEME
     }
 
     ; builds the cells of line l for draw_vrow. half = which screen row of the line (0 = top): a line
@@ -461,7 +490,7 @@ view {
                         k = (k & 15) | (vid.C_LGRAY << 4)
                 }
                 if selhere and i >= a and i < e
-                    k = (vid.C_RED << 4) | vid.C_BLACK
+                    k = theme.rl[theme.R_SEL]
                 if iscur and i == doc.curcol {
                     curx = x
                     curw = w
@@ -486,7 +515,7 @@ view {
             }
         }
         if selhere and a <= ln and e > ln and x < xend
-            vid.r_col[x] = (vid.C_RED << 4) | vid.C_BLACK
+            vid.r_col[x] = theme.rl[theme.R_SEL]
         if iscur and doc.curcol >= ln {
             curx = x
             curw = doc.sz_w(doc.tsty)
@@ -532,13 +561,13 @@ view {
         }
         vid.r_sty[79] = 0
         vid.r_ch[79] = 32
-        vid.r_col[79] = (vid.C_BLACK << 4) | vid.C_RED
+        vid.r_col[79] = theme.rl[theme.R_SCROLL]
         if sr == 0 {
             vid.r_ch[79] = iso:'^'
         } else if sr == VIEWROWS - 1 {
             vid.r_ch[79] = iso:'v'
         } else if sr == thumb {
-            vid.r_col[79] = (vid.C_RED << 4) | vid.C_RED
+            vid.r_col[79] = theme.rl[theme.R_THUMB] * $11
         }
     }
 
@@ -554,11 +583,13 @@ view {
             ; blank paper, already prepared
         } else if kind == 2 {
             ubyte c
-            ; page top edge: a Sunset stripe bar with a black label chip
+            ; page top edge: the theme's char (where col & mask == 0) with a label chip
+            ubyte m = theme.rl[theme.R_PTOP_MASK]
             for c in PAGE_X - 1 to PAGE_X + 64 {
-                vid.r_ch[c] = theme.G_STRIPE
-                vid.r_sty[c] = theme.S_THEME
-                vid.r_col[c] = (vid.C_ORANGE << 4) | vid.C_RED
+                mcell(c, 32)
+                if c & m == 0
+                    mcell(c, theme.rl[theme.R_PTOP_CH])
+                vid.r_col[c] = theme.rl[theme.R_PTOP]
             }
             for c in PAGE_X + 26 to PAGE_X + 34 {
                 vid.r_ch[c] = 32
@@ -574,7 +605,7 @@ view {
                 vid.r_ch[PAGE_X + 32] = iso:' '
             vid.r_ch[PAGE_X + 33] = iso:'0' + pg % 10
             for c in PAGE_X + 26 to PAGE_X + 34
-                vid.r_col[c] = (vid.C_BLACK << 4) | vid.C_YELLOW
+                vid.r_col[c] = theme.rl[theme.R_PTOP_LBL]
         } else {
             desk_row()
         }
