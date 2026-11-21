@@ -1,6 +1,8 @@
 ; doc.p8 - document model: lines in banked RAM, paragraphs with soft word wrap, pages, editing, clipboard.
 
 %import syslib
+%import diskio
+%import vmtab
 %import tblx
 %import pix
 
@@ -9,11 +11,13 @@ doc {
 
     const ubyte COLS = 64
     const ubyte PLINES = 54
-    const uword MAXLINES = 3456         ; 64 pages; 864 (16 pages) on a 512 KB machine: see maxlines
+    const uword MAXLINES = vmt.MAXLINES ; 8192 lines (with X16WPVM.BIN; without it: see maxlines)
+    const ubyte MAXPAGES = vmt.MAXPAGES
     const ubyte MAXIND = 6
     const uword SBMAX = 640
     const ubyte CLIPBANK = 63
     const uword CLIPMAX = 2700
+    const ubyte VMBANK = vmt.VMBANK
 
     ; line slot layout (256 bytes, banked RAM, 32 slots per bank)
     const ubyte O_CH = 0
@@ -38,16 +42,16 @@ doc {
     const ubyte SZ_MASK = $c0
     ubyte[4] SZ_CODE = [0, $80, $40, $c0]       ; 12, 18, 24, 36 pt (the font menu's order)
 
-    ; line order: slot number of every line (MAXLINES words). It lives in banked RAM (bank ORDERBANK at
-    ; $A000) to leave main RAM for the program; oslot() maps that bank, slot_ptr() then maps the line's.
-    ; The map of used line slots (1 bit each) is in the same bank at slotmap.
-    ; Line slots: 32 per bank, slots 0..863 in banks 1..27 (every X16), slots 864.. in banks 64.. (1 MB or
-    ; more: up to MAXLINES). maxlines = what this machine has room for.
-    const ubyte ORDERBANK = 58
-    const uword order = $a000
-    const uword slotmap = $a000 + MAXLINES * 2      ; MAXLINES / 8 bytes
+    ; Line order: 4 bytes for every line in RAM banks 1..4 (ent()): its slot number, a copy of its O_FLG
+    ; and, on a picture's first line, the picture's line count. So paginating and finding paragraphs
+    ; never needs the lines' text, which may be in a swap file.
+    ; Line slots are paged (vmtab.p8): slot_ptr() finds or brings in the slot's section (32 slots = one
+    ; 8 KB bank). X16WPVM.BIN (bank 58) swaps sections to the SD card; without it the document is as long
+    ; as the frame banks hold (736 lines with 512 KB, 3328 with 2 MB). The first line of every page
+    ; (pf()), the map of used slots and the paging tables are in bank 58 too.
     uword maxlines
-    bool pg_over                    ; repaginate: the text needs more than 64 pages
+    bool vm_on                      ; X16WPVM.BIN is there and swap files work
+    bool pg_over                    ; repaginate: the text needs more than MAXPAGES pages
     uword LB = memory("lb", 256, 0)
     uword LBV = memory("lbv", 256, 0)
     uword sbch = memory("sbch", 640, 0)
@@ -66,7 +70,6 @@ doc {
     ubyte tsty
     ubyte tfg
     ubyte tbg
-    uword[64] pfirst
     ubyte npages
     bool modified
     bool full_error
@@ -87,54 +90,335 @@ doc {
     ubyte[54] pc_row                ; (line - first line of the page) * 4 + sub-row, 255 = empty
     ubyte pc_page = 255
 
-    ; ---------------- slots ----------------
-    sub slot_ptr(uword slot) -> uword {
-        ubyte b = lsb(slot >> 5) + 1
-        if b > 27
-            b += 36                         ; slots 864.. in banks 64..
-        cx16.rambank(b)
-        return $a000 + ((slot & 31) << 8)
-    }
+    ; ---------------- paging (vmtab.p8, x16wpvm.p8) ----------------
+    extsub @bank VMBANK $A000 = vm_init() clobbers(A, X, Y)
+    extsub @bank VMBANK $A003 = vm_setup(uword xfer @R0) clobbers(X, Y) -> bool @A
+    extsub @bank VMBANK $A006 = vm_fault(ubyte sec @R0) clobbers(X, Y) -> ubyte @A
+    extsub @bank VMBANK $A009 = vm_quit() clobbers(A, X, Y)
 
-    sub alloc_slot() -> uword {
-        uword p = slotmap
-        ubyte bit
-        ubyte v
-        cx16.rambank(ORDERBANK)
-        while p < slotmap + maxlines / 8 {
-            v = @(p)
-            if v != 255 {
-                for bit in 0 to 7 {
-                    if (v & (1 << bit)) == 0 {
-                        @(p) = v | (1 << bit)
-                        return (p - slotmap) * 8 + bit
-                    }
-                }
-            }
-            p++
+    ; at start, before init_doc()
+    sub vm_load() {
+        cx16.rambank(VMBANK)
+        if diskio.load_raw(iso:"X16WPVM.BIN", $a000) != 0 {
+            vm_init()
+            vm_on = vm_setup(&vm_xfer)
         }
-        return $ffff
     }
 
-    sub free_slot(uword s) {
-        cx16.rambank(ORDERBANK)
-        ubyte b = lsb(s >> 3)
-        @(slotmap + b) = @(slotmap + b) & ~(1 << (lsb(s) & 7))
+    ; at the end: delete the swap files
+    sub vm_end() {
+        if vm_on
+            vm_quit()
+    }
+
+    ; 8 KB between RAM bank r0L and the file X16WPVM.BIN has opened (r0H = 0: read into the bank, 1: write
+    ; the bank). The library calls this with a plain JSR from bank 58 and gets bank 58 back.
+    ; Out: r1L = 0 if all 8192 bytes went through.
+    asmsub vm_xfer() clobbers(A, X, Y) {
+        %asm {{
+            lda  cx16.r0L
+            sta  $00
+            stz  cx16.r3
+            lda  #$a0
+            sta  cx16.r3+1
+_loop       ldx  cx16.r3
+            ldy  cx16.r3+1
+            lda  cx16.r0H
+            bne  _wr
+            lda  #128
+            clc
+            jsr  cx16.MACPTR
+            bra  _moved
+_wr         lda  #128
+            clc
+            jsr  cx16.MCIOUT
+_moved      bcs  _end
+            txa
+            clc
+            adc  cx16.r3
+            sta  cx16.r3
+            tya
+            adc  cx16.r3+1
+            sta  cx16.r3+1
+            jsr  cbm.READST
+            bne  _end
+            lda  cx16.r3+1
+            cmp  #$c0
+            bcc  _loop
+_end        ldx  #1
+            lda  cx16.r3+1
+            cmp  #$c0
+            bne  +
+            ldx  #0
++           stx  cx16.r1L
+            lda  #p8c_VMBANK
+            sta  $00
+            rts
+        }}
+    }
+
+    ; empty document: no slots used, the frame banks hold sections 0, 1, 2, ... (nothing swapped out)
+    sub vm_reset() {
+        cx16.rambank(VMBANK)
+        sys.memset(vmt.TABLES, vmt.STATEND - vmt.TABLES, 0)
+        uword nb = cx16.numbanks()
+        if nb > 145
+            nb = 145                        ; banks 145.. are for pictures (x16wppi.p8)
+        cx16.r0L = lsb(nb)
+        %asm {{
+            ldy  #p8b_vmt.p8c_FBANK0        ; y = frame bank, x = the section it holds
+            ldx  #0
+-           tya
+            sta  p8b_vmt.p8v_secfr,x
+            txa
+            sta  p8b_vmt.p8v_frsec,y
+            lda  #p8b_vmt.p8c_F_FRAME
+            sta  p8b_vmt.p8v_fruse,y
+            inx
+            iny
+            cpy  #p8b_vmt.p8c_FBANK1+1
+            bne  +
+            ldy  #64
++           cpy  cx16.r0L
+            bcc  -
+            stx  cx16.r0H
+        }}
+        maxlines = MAXLINES
+        if not vm_on
+            maxlines = mkword(cx16.r0H, 0) >> 3     ; 32 lines a frame
+    }
+
+    ; ---------------- slots ----------------
+    ; address of line slot `slot`, its bank mapped (read back from the swap file if it was swapped out).
+    ; use = vmt.F_REF to read it, vmt.F_REF | vmt.F_DIRTY to change it. Valid until the next slot_ptr().
+    asmsub slot_ptr(uword slot @AY, ubyte use @X) -> uword @AY {
+        %asm {{
+            stx  P8ZP_SCRATCH_REG
+            sta  P8ZP_SCRATCH_W1
+            tya                     ; section = slot / 32
+            asl  a
+            asl  a
+            asl  a
+            sta  P8ZP_SCRATCH_B1
+            lda  P8ZP_SCRATCH_W1
+            lsr  a
+            lsr  a
+            lsr  a
+            lsr  a
+            lsr  a
+            ora  P8ZP_SCRATCH_B1
+            tax
+            lda  #p8c_VMBANK
+            sta  $00
+            lda  p8b_vmt.p8v_secfr,x
+            bne  _in
+            lda  p8v_vm_on          ; no X16WPVM.BIN: every line is in RAM, only a stray slot number
+            bne  +                  ; (an unused line order entry) gets here
+            lda  #p8b_vmt.p8c_FBANK0
+            bra  _in
++           lda  P8ZP_SCRATCH_W1    ; not in RAM: X16WPVM.BIN brings it in (its code uses the scratch bytes)
+            pha
+            lda  P8ZP_SCRATCH_REG
+            pha
+            stx  cx16.r0L
+            jsr  cx16.JSRFAR
+            .word $a006             ; vm_fault
+            .byte p8c_VMBANK
+            tax
+            pla
+            sta  P8ZP_SCRATCH_REG
+            pla
+            sta  P8ZP_SCRATCH_W1
+            txa
+_in         tax                     ; x = the frame bank
+            lda  p8b_vmt.p8v_fruse,x
+            ora  P8ZP_SCRATCH_REG
+            sta  p8b_vmt.p8v_fruse,x
+            stx  $00
+            lda  P8ZP_SCRATCH_W1    ; $a000 + (slot & 31) * 256
+            and  #31
+            ora  #$a0
+            tay
+            lda  #0
+            rts
+        }}
+    }
+
+    ; a free slot, near slot `hint` if possible (lines next to each other stay in the same section);
+    ; $ffff if there is none. The map has a bit per slot (bank 58, vmt.SLOTMAP).
+    asmsub alloc_slot(uword hint @R0) clobbers(X) -> uword @AY {
+        %asm {{
+            lda  #p8c_VMBANK
+            sta  $00
+            lda  p8v_maxlines       ; r1 = bytes in the map, r2 = bytes left to look at
+            sta  cx16.r1
+            lda  p8v_maxlines+1
+            ldx  #3
+-           lsr  a
+            ror  cx16.r1
+            lsr  cx16.r0+1
+            ror  cx16.r0
+            dex
+            bne  -
+            sta  cx16.r1+1
+            sta  cx16.r2+1
+            lda  cx16.r1
+            sta  cx16.r2
+            lda  cx16.r0+1          ; start at byte hint / 8 (0 if that is past the end)
+            cmp  cx16.r1+1
+            bcc  _loop
+            bne  _wrap
+            lda  cx16.r0
+            cmp  cx16.r1
+            bcc  _loop
+_wrap       stz  cx16.r0
+            stz  cx16.r0+1
+_loop       lda  cx16.r2
+            ora  cx16.r2+1
+            beq  _none
+            clc
+            lda  cx16.r0
+            adc  #<p8b_vmt.p8c_SLOTMAP
+            sta  cx16.r3
+            lda  cx16.r0+1
+            adc  #>p8b_vmt.p8c_SLOTMAP
+            sta  cx16.r3+1
+            lda  (cx16.r3)
+            cmp  #255
+            bne  _found
+            lda  cx16.r2
+            bne  +
+            dec  cx16.r2+1
++           dec  cx16.r2
+            inc  cx16.r0
+            bne  +
+            inc  cx16.r0+1
++           lda  cx16.r0
+            cmp  cx16.r1
+            bne  _loop
+            lda  cx16.r0+1
+            cmp  cx16.r1+1
+            bne  _loop
+            bra  _wrap
+_none       lda  #$ff
+            tay
+            rts
+_found      ldx  #0                 ; lowest clear bit: x = its number, P8ZP_SCRATCH_B1 = its mask
+            ldy  #1
+-           lsr  a
+            bcc  +
+            inx
+            pha
+            tya
+            asl  a
+            tay
+            pla
+            bra  -
++           tya
+            ora  (cx16.r3)
+            sta  (cx16.r3)
+            ldy  #3                 ; slot = byte * 8 + bit
+-           asl  cx16.r0
+            rol  cx16.r0+1
+            dey
+            bne  -
+            txa
+            ora  cx16.r0
+            ldy  cx16.r0+1
+            rts
+        }}
+    }
+
+    asmsub free_slot(uword s @AY) clobbers(A, X, Y) {
+        %asm {{
+            tax
+            and  #7
+            sta  P8ZP_SCRATCH_B1
+            txa
+            sty  P8ZP_SCRATCH_W1+1
+            ldx  #3
+-           lsr  P8ZP_SCRATCH_W1+1
+            ror  a
+            dex
+            bne  -
+            clc
+            adc  #<p8b_vmt.p8c_SLOTMAP
+            sta  P8ZP_SCRATCH_W1
+            lda  P8ZP_SCRATCH_W1+1
+            adc  #>p8b_vmt.p8c_SLOTMAP
+            sta  P8ZP_SCRATCH_W1+1
+            lda  #p8c_VMBANK
+            sta  $00
+            lda  #1
+            ldx  P8ZP_SCRATCH_B1
+            beq  +
+-           asl  a
+            dex
+            bne  -
++           eor  #255
+            and  (P8ZP_SCRATCH_W1)
+            sta  (P8ZP_SCRATCH_W1)
+            rts
+        }}
+    }
+
+    ; line idx's 4-byte entry in the line order (its bank mapped)
+    asmsub ent(uword idx @AY) clobbers(X) -> uword @AY {
+        %asm {{
+            sta  P8ZP_SCRATCH_B1
+            tya
+            lsr  a
+            lsr  a
+            lsr  a
+            clc
+            adc  #p8b_vmt.p8c_OBANK
+            sta  $00
+            tya                     ; ((idx & 2047) << 2) + $a000
+            and  #7
+            asl  P8ZP_SCRATCH_B1
+            rol  a
+            asl  P8ZP_SCRATCH_B1
+            rol  a
+            ora  #$a0
+            tay
+            lda  P8ZP_SCRATCH_B1
+            rts
+        }}
     }
 
     sub oslot(uword idx) -> uword {
-        cx16.rambank(ORDERBANK)
-        return peekw(order + idx * 2)
+        return peekw(ent(idx))
+    }
+
+    ; line idx's slot was changed at p: copy its flags (and picture line count) into its entry
+    sub sync_ent(uword idx, uword p) {
+        cx16.r10 = p
+        %asm {{
+            ldy  #p8c_O_FLG
+            lda  (cx16.r10),y
+            sta  cx16.r11L
+            stz  cx16.r11H
+            ldy  #p8c_O_PIC
+            lda  (cx16.r10),y
+            beq  +
+            iny                     ; O_PROW
+            lda  (cx16.r10),y
+            bne  +
+            lda  (cx16.r10)         ; a picture's first line: its line count
+            sta  cx16.r11H
++
+        }}
+        pokew(ent(idx) + 2, cx16.r11)
     }
 
     sub ld(uword idx, uword dst) {
-        uword src = slot_ptr(oslot(idx))
-        sys.memcopy(src, dst, 248)
+        sys.memcopy(slot_ptr(oslot(idx), vmt.F_REF), dst, 248)
     }
 
     sub st(uword idx, uword src) {
-        uword dst = slot_ptr(oslot(idx))
-        sys.memcopy(src, dst, 248)
+        uword p = slot_ptr(oslot(idx), vmt.F_REF | vmt.F_DIRTY)
+        sys.memcopy(src, p, 248)
+        sync_ent(idx, p)
     }
 
     ; n bytes between RAM bank b at a and main RAM at d (out: main -> bank), for x16wppi.p8, which
@@ -150,60 +434,118 @@ doc {
     }
 
     sub meta(uword idx, ubyte off) -> ubyte {
-        uword p = slot_ptr(oslot(idx))
-        return @(p + off)
+        if off == O_FLG
+            return @(ent(idx) + 2)          ; from the line order: no need to bring the line in
+        return @(slot_ptr(oslot(idx), vmt.F_REF) + off)
     }
 
     sub setmeta(uword idx, ubyte off, ubyte v) {
-        uword p = slot_ptr(oslot(idx))
+        uword p = slot_ptr(oslot(idx), vmt.F_REF | vmt.F_DIRTY)
         @(p + off) = v
+        sync_ent(idx, p)
+    }
+
+    ; line order entries idx.. one place up (up: room for a line at idx), or idx + 1.. one place down
+    ; (over idx); entry by entry, from bank to bank
+    sub oshift(uword idx, bool up) {
+        cx16.r5 = nlines - idx
+        cx16.r4 = ent(nlines)
+        if not up {
+            cx16.r5--
+            cx16.r4 = ent(idx)
+        }
+        cx16.r6L = cx16.getrambank()
+        cx16.r6H = up as ubyte
+        %asm {{
+            ; r4 = destination entry (bank r6L), r5 = entries to move, r6H = up
+_loop       lda  cx16.r5
+            ora  cx16.r5+1
+            beq  _done
+            ldx  cx16.r6L
+            lda  cx16.r6H
+            beq  _down
+            sec                     ; up: source = destination - 4
+            lda  cx16.r4
+            sbc  #4
+            sta  P8ZP_SCRATCH_W1
+            lda  cx16.r4+1
+            sbc  #0
+            cmp  #$a0
+            bcs  _src
+            lda  #$bf
+            dex
+            bra  _src
+_down       clc                     ; down: source = destination + 4
+            lda  cx16.r4
+            adc  #4
+            sta  P8ZP_SCRATCH_W1
+            lda  cx16.r4+1
+            adc  #0
+            cmp  #$c0
+            bcc  _src
+            lda  #$a0
+            inx
+_src        sta  P8ZP_SCRATCH_W1+1
+            ldy  #3
+-           stx  $00
+            lda  (P8ZP_SCRATCH_W1),y
+            sta  P8ZP_SCRATCH_B1
+            lda  cx16.r6L
+            sta  $00
+            lda  P8ZP_SCRATCH_B1
+            sta  (cx16.r4),y
+            dey
+            bpl  -
+            lda  P8ZP_SCRATCH_W1    ; the source is the next destination
+            sta  cx16.r4
+            lda  P8ZP_SCRATCH_W1+1
+            sta  cx16.r4+1
+            stx  cx16.r6L
+            lda  cx16.r5
+            bne  +
+            dec  cx16.r5+1
++           dec  cx16.r5
+            bra  _loop
+_done       rts                     ; (a sub ending in %asm gets no rts of its own)
+        }}
     }
 
     sub insert_blank(uword idx) -> bool {
-        if nlines >= maxlines or pg_over {
+        cx16.rambank(VMBANK)
+        if nlines >= maxlines or pg_over or vmt.stat != 0 {
             full_error = true
             return false
         }
-        uword s = alloc_slot()
+        uword s = 0
+        if idx != 0
+            s = oslot(idx - 1)
+        s = alloc_slot(s)
         if s == $ffff {
             full_error = true
             return false
         }
-        uword i = nlines
-        cx16.rambank(ORDERBANK)
-        while i > idx {
-            pokew(order + i * 2, peekw(order + (i - 1) * 2))
-            i--
-        }
-        pokew(order + idx * 2, s)
+        oshift(idx, true)
+        uword e = ent(idx)
+        pokew(e, s)
+        pokew(e + 2, 0)
         nlines++
         sys.memset(LBV, 256, 0)
-        uword p = slot_ptr(s)
-        sys.memcopy(LBV, p, 248)
+        sys.memcopy(LBV, slot_ptr(s, vmt.F_REF | vmt.F_DIRTY), 248)
         return true
     }
 
     sub delete_line(uword idx) {
         ubyte ob = cx16.getrambank()
         free_slot(oslot(idx))
-        uword i = idx
-        while i + 1 < nlines {
-            pokew(order + i * 2, peekw(order + (i + 1) * 2))
-            i++
-        }
+        oshift(idx, false)
         cx16.rambank(ob)
         nlines--
     }
 
     sub init_doc() {
-        ; line slots this machine has: banks 1..27, and 64.. if there are more than 64 banks
-        uword nb = cx16.numbanks()
-        if nb > 145
-            nb = 145                        ; 64 + (MAXLINES - 864) / 32
-        maxlines = (nb << 5) - 1184         ; 864 + (nb - 64) * 32
-        cx16.rambank(ORDERBANK)
-        sys.memset(slotmap, MAXLINES / 8, 0)
+        vm_reset()
         nlines = 0
+        pg_over = false
         void insert_blank(0)
         curline = 0
         curcol = 0
@@ -216,6 +558,12 @@ doc {
         rd_mode = 2
         need_repag = true
         repaginate()
+    }
+
+    ; first line of page p
+    sub pf(ubyte p) -> uword {
+        cx16.rambank(VMBANK)
+        return peekw(vmt.PF + (p as uword << 1))
     }
 
     ; ---------------- helpers ----------------
@@ -309,22 +657,26 @@ doc {
         ubyte h
         ubyte f
         ubyte need
+        uword e
         pg_over = false
-        pfirst[0] = 0
+        cx16.rambank(VMBANK)
+        pokew(vmt.PF, 0)
         for l in 0 to nlines - 1 {
-            f = meta(l, O_FLG)
+            e = ent(l)
+            f = @(e + 2)
             h = line_h(f)
             need = h
-            if meta(l, O_PIC) != 0 and meta(l, O_PROW) == 0
-                need = meta(l, 0)                   ; a picture's first line: keep it on one page
+            if @(e + 3) != 0
+                need = @(e + 3)                     ; a picture's first line: keep it on one page
             if l > 0 {
                 if (f & F_HARD) != 0 or rows + need > PLINES {
-                    if p < 63 {
+                    if p < MAXPAGES - 1 {
                         p++
-                        pfirst[p] = l
+                        cx16.rambank(VMBANK)
+                        pokew(vmt.PF + (p as uword << 1), l)
                         rows = 0
                     } else
-                        pg_over = true          ; more than 64 pages: no more lines
+                        pg_over = true          ; more than MAXPAGES pages: no more lines
                 }
             }
             rows += h
@@ -336,7 +688,7 @@ doc {
 
     sub page_of(uword l) -> ubyte {
         ubyte p = npages - 1
-        while p > 0 and pfirst[p] > l
+        while p > 0 and pf(p) > l
             p--
         return p
     }
@@ -345,11 +697,11 @@ doc {
         if pc_page == p
             return
         uword endl = nlines
-        if p + 1 < npages and pfirst[p + 1] < endl
-            endl = pfirst[p + 1]
+        if p + 1 < npages and pf(p + 1) < endl
+            endl = pf(p + 1)
         ubyte r = 0
         ubyte n = 0
-        uword l = pfirst[p]
+        uword l = pf(p)
         ubyte h
         ubyte k
         while l < endl and r < PLINES {
@@ -374,7 +726,7 @@ doc {
     sub vrow_of(uword l) -> uword {
         ubyte p = page_of(l)
         build_pagemap(p)
-        ubyte n = lsb(l - pfirst[p]) << 2
+        ubyte n = lsb(l - pf(p)) << 2
         ubyte r = 0
         while r < PLINES - 1 and pc_row[r] != n
             r++
@@ -396,7 +748,7 @@ doc {
         ubyte e = pc_row[rip - 1]
         if e == 255
             return 1
-        cx16.r0 = pfirst[pp] + (e >> 2)
+        cx16.r0 = pf(pp) + (e >> 2)
         cx16.r1L = e & 3
         return 0
     }
@@ -582,13 +934,15 @@ doc {
     }
 
     sub sb_remove(uword off, uword n, uword cnt) {
-        uword k = off
-        while k + n < cnt {
-            @(sbch + k) = @(sbch + k + n)
-            @(sbsty + k) = @(sbsty + k + n)
-            @(sbcol + k) = @(sbcol + k + n)
-            k++
-        }
+        if off + n < cnt
+            sb_move(off + n, off, cnt - off - n)
+    }
+
+    ; n characters of the paragraph stream from offset a to offset b (the ranges may overlap)
+    sub sb_move(uword a, uword b, uword n) {
+        cx16.memory_copy(sbch + a, sbch + b, n)
+        cx16.memory_copy(sbsty + a, sbsty + b, n)
+        cx16.memory_copy(sbcol + a, sbcol + b, n)
     }
 
     ; ---------------- typing attributes ----------------
@@ -596,7 +950,7 @@ doc {
         ubyte ln = meta(curline, O_LEN)
         if ln == 0
             return
-        uword p = slot_ptr(oslot(curline))
+        uword p = slot_ptr(oslot(curline), vmt.F_REF)
         ubyte c = curcol
         if c > 0
             c--
@@ -657,13 +1011,7 @@ doc {
             return
         }
         uword off = offset_of(first, curline, curcol)
-        uword k = cnt
-        while k > off {
-            k--
-            @(sbch + k + n) = @(sbch + k)
-            @(sbsty + k + n) = @(sbsty + k)
-            @(sbcol + k + n) = @(sbcol + k)
-        }
+        sb_move(off, off + n, cnt - off)
         sys.memcopy(&stg_ch, sbch + off, n)
         sys.memcopy(&stg_sty, sbsty + off, n)
         sys.memcopy(&stg_col, sbcol + off, n)
@@ -744,7 +1092,7 @@ doc {
     }
 
     sub page_break() {
-        if npages >= 63 or meta(curline, O_TBL) != 0 or meta(curline, O_PIC) != 0
+        if npages >= MAXPAGES - 1 or meta(curline, O_TBL) != 0 or meta(curline, O_PIC) != 0
             return
         newline()
         if full_error
@@ -867,6 +1215,19 @@ doc {
 
     ; ---------------- character attribute changes ----------------
     ; kind: 0 toggle style bit(s), 1 font, 2 text colour, 3 highlight colour, 4 size (val = SZ_CODE[..]: 0 12 pt, $80 18 pt, $40 24 pt, $c0 36 pt)
+    ; line l into LB, and the part of it in the (normalised) selection: characters sp_a .. sp_b - 1
+    ubyte sp_a
+    ubyte sp_b
+    sub sel_span(uword l) {
+        ld(l, LB)
+        sp_a = 0
+        sp_b = LB[O_LEN]
+        if l == sn_l1
+            sp_a = sn_c1
+        if l == sn_l2 and sn_c2 < sp_b
+            sp_b = sn_c2
+    }
+
     sub apply_attr(ubyte kind, ubyte val) {
         if kind == 0
             tsty ^= val
@@ -882,23 +1243,13 @@ doc {
             return
         sel_norm()
         uword l
-        ubyte a
-        ubyte b
         ubyte i
-        ubyte ln
         bool allset = true
         if kind == 0 {
             for l in sn_l1 to sn_l2 {
-                ld(l, LB)
-                ln = LB[O_LEN]
-                a = 0
-                b = ln
-                if l == sn_l1
-                    a = sn_c1
-                if l == sn_l2 and sn_c2 < b
-                    b = sn_c2
-                i = a
-                while i < b {
+                sel_span(l)
+                i = sp_a
+                while i < sp_b {
                     if (LB[O_STY + i] & val) == 0
                         allset = false
                     i++
@@ -911,18 +1262,11 @@ doc {
                 tsty |= val
         }
         for l in sn_l1 to sn_l2 {
-            ld(l, LB)
-            ln = LB[O_LEN]
-            a = 0
-            b = ln
-            if l == sn_l1
-                a = sn_c1
-            if l == sn_l2 and sn_c2 < b
-                b = sn_c2
+            sel_span(l)
             if kind == 4 and LB[O_TBL] != 0
-                b = a                       ; no 24 pt in tables
-            i = a
-            while i < b {
+                sp_b = sp_a                 ; no 24 pt in tables
+            i = sp_a
+            while i < sp_b {
                 if LB[O_STY + i] & 8 != 0 {
                     i++
                     continue                ; table border glyph
@@ -1039,24 +1383,14 @@ doc {
         sel_norm()
         clip_n = 0
         uword l
-        ubyte a
-        ubyte b
         ubyte i
-        ubyte ln
         ubyte ch
         ubyte sty
         ubyte col
         for l in sn_l1 to sn_l2 {
-            ld(l, LB)
-            ln = LB[O_LEN]
-            a = 0
-            b = ln
-            if l == sn_l1
-                a = sn_c1
-            if l == sn_l2 and sn_c2 < b
-                b = sn_c2
-            i = a
-            while i < b {
+            sel_span(l)
+            i = sp_a
+            while i < sp_b {
                 ch = LB[O_CH + i]
                 sty = LB[O_STY + i]
                 col = LB[O_COL + i]

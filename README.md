@@ -2,13 +2,14 @@
 
 Build: `make PROG8C="<prog8c 12.3.x command>"` (needs Prog8 12.3.x + 64tass + Java 11+). Everything
 lands in `build/`: **x16wp.prg**, **x16wpcl.bin** (ownCloud UI, RAM bank 62), **x16wpsa.bin** (Save As
-folder browser, RAM bank 59, loaded by x16wpcl.bin), **x16wptb.bin** (tables, RAM bank 57; the line-order
-table is in bank 58, the RTF file buffer in bank 56, the renderer's buffers in bank 55), **x16wppi.bin** and
+folder browser, RAM bank 59, loaded by x16wpcl.bin), **x16wptb.bin** (tables, RAM bank 57; the RTF
+file buffer is in bank 56, the renderer's buffers in bank 55), **x16wppi.bin** and
 **x16wppl.bin** (pictures, RAM bank 54 and bank 56 from $A200, and the tool tips; picture data in banks
-28-53), **x16wphc.bin** (256-colour pictures, RAM bank 55 from $AE00), **x16wpth.bin** (reads the theme files), **x16link.bin** and
+28-53), **x16wphc.bin** (256-colour pictures, RAM bank 55 from $AE00), **x16wpth.bin** (reads the theme files),
+**x16wpvm.bin** (documents longer than the RAM, RAM bank 58, see Long documents), **x16link.bin** and
 **x16docs.bin** (X16Link libraries, banks 60/61, sources vendored in `lib/x16link/`, see
 `lib/x16link/VENDORED.md`). `make sd SD=<dir>` also copies them as X16WP.PRG, X16WPCL.BIN,
-X16WPSA.BIN, X16WPTB.BIN, X16WPPI.BIN, X16WPPL.BIN, X16WPHC.BIN, X16WPTH.BIN, X16LINK.BIN, X16DOCS.BIN
+X16WPSA.BIN, X16WPTB.BIN, X16WPPI.BIN, X16WPPL.BIN, X16WPHC.BIN, X16WPTH.BIN, X16WPVM.BIN, X16LINK.BIN, X16DOCS.BIN
 and the themes X16THEME1.BIN .. X16THEME6.BIN (see Themes). Run: `make run` (needs a mouse, 512 KB RAM). Without the .BIN files on the
 SD card the program still works as a plain SD-card word processor. (`x16wp.prg`/`.asm` in the repo
 root are the original pre-cloud build, kept for reference.)
@@ -129,9 +130,11 @@ needs a hub with BMX conversion, `conv 4`; older hubs show those files greyed ou
   tool tips; it also loads X16WPHC.BIN) and **X16WPHC.BIN** (RAM bank 55 at $AE00, after the
   renderer's buffers, `x16wphc.p8`: 256-colour drawing on layer 1, its VRAM map is in the source);
   `pix.p8` is the main-RAM side. Without the first two there are no pictures and no tool tips.
-* `selftest/run_bigtest.sh` runs long-document tests with 512 KB and with 2 MB: filling to 864 / 3456
-  lines, lines in banks 64.., 16 / 64 pages, the full-document guards, slot reuse, RTF save -> load ->
-  save of a full document, and 2 / 13 big pictures.
+* `selftest/run_bigtest.sh` runs long-document tests with 512 KB and with 2 MB on the host file system,
+  and with 512 KB on a FAT32 SD card image (macOS): without X16WPVM.BIN filling to 736 / 3328 lines;
+  with it filling to 8192 lines (swap files), read-back across the line-order banks, a changed line
+  coming back from its swap file, a change of folder (SD card), the full-document guards, slot reuse,
+  RTF save -> load -> save of a full document, no swap files left, and 2 / 13 big pictures.
 * `selftest/run_pictest.sh` tests pictures headless with the real libraries (test BMX files from
   `selftest/mkbmx.py`): insert, the key / selection / paste guards, paragraph operations, full memory,
   page breaks, and RTF save -> load -> save identical with the BMX files byte for byte.
@@ -202,12 +205,36 @@ ownCloud (`selftest/fakehub.py`, needs `../x16-office-hub` and its venv): new fo
 saving into them, Replace, Cancel going back, saving back to the same ownCloud file. `SHOT=1` records
 `build/saveastest/shots.gif`.
 
+## Long documents
+
+A document can be longer than the RAM: up to **8192 lines** (about 150 pages) on every X16. Only the
+part you are working on is in RAM; the rest waits in swap files on the SD card and comes back when it
+is needed (scrolling to it, saving, selecting...). Opening a file (from the SD card, or from ownCloud,
+which first downloads it to the SD card) reads it into the document the same way, so it never has to
+fit in RAM.
+
+* Lines are kept in **sections** of 32 lines (32 x 256 bytes = one 8 KB RAM bank). The sections in RAM
+  sit in the *frame* banks 5..27 (23 sections = 736 lines on 512 KB) and 64..144 (81 more with 2 MB).
+  When another section is needed, the one used least lately (clock / second chance) makes room; it is
+  written to its swap file only if it was changed since it was last read.
+* Swap files: `/X16WPSWP/S000` .. `S255` on the SD card (an absolute path, so Save As into another
+  folder doesn't matter), 8 KB each, deleted when X16 Write starts and quits. A swap file is only read
+  back if it was written since the document was started, so a leftover one never matters (the
+  emulator's host file system can't delete them by pattern; with a DOS that has no folders they are
+  `X16WPSW000` .. in the folder X16 Write started in).
+* The line order (4 bytes a line: the line's slot, its flags and, on a picture's first line, its
+  height) is in banks 1..4, so pages and paragraphs are worked out without reading swapped-out lines.
+  Bank 58 holds X16WPVM.BIN (`x16wpvm.p8`: freeing a frame, swap files) and the tables (`vmtab.p8`):
+  which section is in which frame, the map of used line slots and the first line of every page.
+* Without X16WPVM.BIN (or when no swap file can be written) the document is as long as the frame banks
+  hold: 736 lines (13 pages) with 512 KB, 3328 lines (61 pages) with 2 MB. If the SD card stops taking
+  swap files, the document takes no new lines ("Document is full!").
+* At most 255 pages; a document that needs more (large fonts, page breaks) refuses new lines;
+  opening a longer file keeps its beginning. ownCloud transfers are still limited to 1 MiB (the
+  X16Link library and the hub): a full 8192-line document of plain text is about 600 KB of RTF, but
+  much formatting or pictures can take it over.
+
 ## Notes / limits
-* Document length depends on the X16's RAM: **16 pages** (864 lines) with the standard 512 KB, up to
-  **64 pages** (3456 lines) with 1.5 MB or 2 MB (1 MB: about 53 pages). The extra lines go in RAM banks
-  64..144 (`doc.p8`: line slots 864.. ; the map of used slots is in bank 58 next to the line order), and
-  pictures also use the banks above them. A document that needs more pages than that (large fonts, page
-  breaks) refuses new lines ("Document is full!"); opening a longer file keeps its beginning.
 * Clipboard 2700 characters, file names are typed in a dialog.
 * Opening RTF from other programs is best effort (colours map by index, one font family each).
 * `selftest/selftest.p8` is a scripted headless test (builds a document, exports, re-imports).

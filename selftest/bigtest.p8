@@ -1,7 +1,12 @@
-; bigtest.p8 - long documents, headless (selftest/run_bigtest.sh runs it with 512 KB and with 2 MB):
-; 864 lines (16 pages) on 512 KB, 3456 lines (64 pages) with 1 MB+ of RAM (line slots in banks 64..),
-; full-document guards, RTF save -> load -> save of a full document, and pictures in the extra banks.
-; Prints PASS/FAIL lines and DONE; leaves BIG1.RTF / BIG2.RTF.
+; bigtest.p8 - long documents, headless (selftest/run_bigtest.sh runs it with 512 KB and with 2 MB, on
+; the host file system, and with 512 KB on a FAT32 SD card image).
+; Part 1, without X16WPVM.BIN: the document is as long as the frame banks hold, 736 lines on 512 KB,
+; 3328 lines with 2 MB (line slots in banks 64..).
+; Part 2, with X16WPVM.BIN: 8192 lines, far more than the RAM holds, so sections go to swap files and
+; come back: read-back across the line order banks, inserting / deleting (the line order moves across
+; banks), a changed line that was swapped out, full-document guards, RTF save -> load -> save, and on
+; the SD card (file SDTEST there) a change of the current folder while lines are swapped out.
+; Then pictures in the extra banks. Prints PASS/FAIL lines and DONE; leaves BIG1.RTF / BIG2.RTF.
 
 %import syslib
 %import textio
@@ -101,6 +106,59 @@ main {
         return has(l, 0, iso:"Line ") and has(l, 5, nb)
     }
 
+    ; fill the document: line 0 exists, add lines 1.. until it is full
+    sub fill() {
+        put_line(0, 0)
+        uword n = 1
+        while add(n)
+            n++
+        doc.full_error = false
+        check(doc.nlines == want, iso:"filled to the limit")
+    }
+
+    ; pages, guards, delete / insert, RTF save -> load -> save of the full document
+    sub guards() {
+        uword pages = (want + 53) / 54
+        doc.repaginate()
+        check(doc.npages == lsb(pages), iso:"pages of a full document")
+        check(not doc.insert_blank(5) and doc.full_error, iso:"a full document refuses another line")
+        doc.full_error = false
+        ; a deleted line's slot is used again
+        doc.delete_line(10)
+        check(add(9999) and doc.nlines == want and has(want - 1, 5, iso:"9999") and line_is(9) and has(10, 5, iso:"0011"), iso:"delete + add reuses the slot")
+        check((has(2047, 5, iso:"2048") and has(2048, 5, iso:"2049")) or want < 2050, iso:"delete moved the lines across the order banks")
+        doc.delete_line(want - 1)
+        check(doc.insert_blank(10), iso:"insert in the middle")
+        put_line(10, 10)
+        check(doc.nlines == want and line_is(10) and line_is(11) and line_is(want - 1), iso:"document restored")
+        check((line_is(2047) and line_is(2048)) or want < 2050, iso:"insert moved the lines back across the order banks")
+
+        ; page break: refused when the document is full
+        doc.repaginate()
+        doc.curline = want - 2
+        doc.curcol = 0
+        doc.page_break()
+        doc.repaginate()
+        check(doc.nlines == want and doc.npages == lsb(pages), iso:"no page break in a full document")
+        doc.full_error = false
+
+        ; save, load, save
+        check(rtf.export(iso:"BIG1.RTF"), iso:"export")
+        doc.init_doc()
+        check(rtf.import(iso:"BIG1.RTF"), iso:"import")
+        doc.repaginate()
+        check(doc.nlines == want and line_is(0) and line_is(want / 2) and line_is(want - 1), iso:"every line comes back")
+        txt.print(iso:"after import: lines ")
+        txt.print_uw(doc.nlines)
+        txt.print(iso:" pages ")
+        txt.print_ub(doc.npages)
+        txt.print(iso:" page 13 starts at ")
+        txt.print_uw(doc.pf(13))
+        txt.nl()
+        check(doc.npages == lsb(pages) and doc.pf(13) == 13 * 54, iso:"pages come back")
+        check(rtf.export(iso:"BIG2.RTF"), iso:"export again")
+    }
+
     sub button(str name) {
         ubyte i = 0
         while name[i] != 0 {
@@ -124,66 +182,51 @@ main {
         tblx.load()
         pix.load()
         bool big = cx16.numbanks() >= 145
-        want = 864
+        bool sd = diskio.exists(iso:"SDTEST")
+
+        ; ---- part 1: no X16WPVM.BIN, the document lives in the frame banks ----
+        want = 736
         if big
-            want = 3456
+            want = 3328
         doc.init_doc()
         txt.print(iso:"banks ")
         txt.print_uw(cx16.numbanks())
         txt.print(iso:" maxlines ")
         txt.print_uw(doc.maxlines)
         txt.nl()
-        check(doc.maxlines == want, iso:"room for 864 lines (512 KB) / 3456 lines (2 MB)")
-
-        ; fill it: line 0 exists, add lines 1.. until the document is full
-        put_line(0, 0)
-        uword n = 1
-        while add(n)
-            n++
-        doc.full_error = false
-        check(doc.nlines == want, iso:"filled to the limit")
+        check(not doc.vm_on and doc.maxlines == want, iso:"no swap: room for 736 lines (512 KB) / 3328 lines (2 MB)")
+        fill()
         check(line_is(0) and line_is(500) and line_is(want - 1), iso:"first, middle and last line read back")
         if big
-            check(line_is(863) and line_is(864) and line_is(2000) and line_is(3455), iso:"lines in banks 64.. read back")
-        doc.repaginate()
-        check(doc.npages == lsb(want / 54), iso:"16 / 64 pages")
-        check(not doc.insert_blank(5) and doc.full_error, iso:"a full document refuses another line")
-        doc.full_error = false
-        ; a deleted line's slot is used again
-        doc.delete_line(10)
-        check(add(9999) and doc.nlines == want and has(want - 1, 5, iso:"9999") and line_is(9) and has(10, 5, iso:"0011"), iso:"delete + add reuses the slot")
-        doc.delete_line(want - 1)
-        check(doc.insert_blank(10), iso:"insert in the middle")
-        put_line(10, 10)
-        check(doc.nlines == want and line_is(10) and line_is(11) and line_is(want - 1), iso:"document restored")
+            check(line_is(735) and line_is(736) and line_is(2000) and line_is(3327), iso:"lines in banks 64.. read back")
+        guards()
 
-        ; page break: refused on page 63+
-        doc.repaginate()
-        doc.curline = want - 2
-        doc.curcol = 0
-        doc.page_break()
-        doc.repaginate()
-        check(doc.nlines == want and doc.npages == lsb(want / 54), iso:"no page break in a full document")
-        doc.full_error = false
-
-        ; save, load, save
-        check(rtf.export(iso:"BIG1.RTF"), iso:"export")
+        ; ---- part 2: X16WPVM.BIN, swap files ----
+        doc.vm_load()
+        want = 8192
         doc.init_doc()
-        check(rtf.import(iso:"BIG1.RTF"), iso:"import")
-        doc.repaginate()
-        check(doc.nlines == want and line_is(0) and line_is(want / 2) and line_is(want - 1), iso:"every line comes back")
-        txt.print(iso:"after import: lines ")
-        txt.print_uw(doc.nlines)
-        txt.print(iso:" pages ")
-        txt.print_ub(doc.npages)
-        txt.print(iso:" page 15 starts at ")
-        txt.print_uw(doc.pfirst[15])
-        txt.nl()
-        check(doc.npages == lsb(want / 54), iso:"pages come back")
-        check(rtf.export(iso:"BIG2.RTF"), iso:"export again")
+        check(doc.vm_on and doc.maxlines == want, iso:"X16WPVM.BIN: room for 8192 lines")
+        fill()
+        check(line_is(0) and line_is(2047) and line_is(2048) and line_is(4095) and line_is(4096) and line_is(6143) and line_is(6144) and line_is(want - 1), iso:"lines on both sides of the line order banks read back")
+        check(line_is(1) and line_is(want - 2) and line_is(0) and line_is(want / 2) and line_is(700) and line_is(7000), iso:"swapped-out lines come back in any order")
+        ; a changed line that then gets swapped out keeps the change
+        put_line(100, 5555)
+        check(line_is(want - 1) and line_is(4000) and has(100, 5, iso:"5555"), iso:"a changed line comes back from its swap file")
+        put_line(100, 100)
+        if sd {
+            ; Save As into a folder changes the current folder: the swap files have an absolute path
+            diskio.mkdir(iso:"SUB")
+            diskio.chdir(iso:"SUB")
+            check(line_is(3) and line_is(8000) and line_is(3000) and line_is(100), iso:"lines come back after a change of folder")
+            diskio.chdir(iso:"..")
+        }
+        guards()
+        doc.vm_end()
 
         ; pictures: 2 x PIC8 fit in banks 28..53; with 2 MB 11 more fit above the lines
+        doc.vm_load()
         doc.init_doc()
+        uword n
         ubyte i
         ubyte got = 0
         for i in 0 to 14 {
@@ -218,6 +261,7 @@ main {
                 back++
         }
         check(back == got, iso:"every picture comes back")
+        doc.vm_end()
 
         if fails == 0
             txt.print(iso:"ALL PASS\r")

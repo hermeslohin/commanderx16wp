@@ -34,6 +34,7 @@ main {
         void themes(0)           ; after the icons: the chosen theme (X16THEME.CFG, X16THEMEn.BIN), Quill on
         tblx.load()              ; tables (X16WPTB.BIN, bank 57; uploads the Table icon)
         pix.load()               ; pictures and tool tips (X16WPPI.BIN, bank 54; uploads the Picture icon)
+        doc.vm_load()            ; documents longer than the RAM: swap files (X16WPVM.BIN, bank 58)
         doc.init_doc()
         view.set_filename(iso:"untitled.rtf")
         view.set_status(iso:"Welcome! Click icons, type to edit")
@@ -54,6 +55,7 @@ main {
             }
         }
         theme.off()
+        doc.vm_end()
         vid.gfx_off()
     }
 

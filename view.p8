@@ -387,7 +387,7 @@ view {
         ubyte lb = theme.rl[theme.R_STAT_LBL]
         st_put(3, status_msg, fg)
         st_put(56, iso:"Ln", lb)
-        st_put(59, conv.str_uw((doc.curline - doc.pfirst[page_cur()]) + 1), fg)
+        st_put(59, conv.str_uw((doc.curline - doc.pf(page_cur())) + 1), fg)
         st_put(65, iso:"Col", lb)
         st_put(69, conv.str_uw(doc.curcol + 1), fg)
         vid.render_run(STATUS_ROW, 0, 80)
