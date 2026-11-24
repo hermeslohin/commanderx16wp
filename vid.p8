@@ -131,6 +131,10 @@ vid {
         cx16.mouse_config(0, 0, 0)
         cbm.CINT()                      ; also resets layer 1 (X16WPHC.BIN's pictures) for the text screen
         cx16.set_screen_mode(0)
+        ; some ROMs leave the app's layers as they are: bitmap layer 0 and sprites off, text layer 1
+        ; on, or the X16 sits at an invisible READY prompt behind the app's last picture
+        cx16.VERA_CTRL = 0
+        cx16.VERA_DC_VIDEO = (cx16.VERA_DC_VIDEO & $07) | $20
         cbm.CHROUT($8f)
         cbm.CHROUT(147)
     }
